@@ -1,5 +1,0 @@
-/home/n2/chaewon/snusolver/build/CMakeFiles/edit_cache.dir
-/home/n2/chaewon/snusolver/build/CMakeFiles/rebuild_cache.dir
-/home/n2/chaewon/snusolver/build/src/CMakeFiles/driver.dir
-/home/n2/chaewon/snusolver/build/src/CMakeFiles/edit_cache.dir
-/home/n2/chaewon/snusolver/build/src/CMakeFiles/rebuild_cache.dir

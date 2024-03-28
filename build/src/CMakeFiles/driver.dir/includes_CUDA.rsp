@@ -1,1 +1,0 @@
--I/usr/local/cuda/include -I/home/n2/chaewon/intel/oneapi/mkl/latest/include -I/home/n2/chaewon/lib/openmpi/include -I"/home/n2/chaewon/pardiso-thunder/parmetis-4.0.3/include" -I"/home/n2/chaewon/pardiso-thunder/parmetis-4.0.3/metis/include"

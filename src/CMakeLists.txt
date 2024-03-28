@@ -61,7 +61,7 @@ link_directories(/home/n2/chaewon/12345)
 #pybind11_add_module(snusolver_c snusolver_c.cpp)
 #target_link_libraries(snusolver_c PUBLIC mpi mpi_cxx)
 
-add_executable(driver driver.cpp parmetis_driver.cpp construct.cpp kernel.cpp kernel_gpu.cu)
+add_executable(driver driver.cpp parmetis_driver.cpp construct.cpp kernel.cpp kernel_gpu.cu mmio.c read_matrix.cpp)
 target_link_libraries(driver parmetis metis)
 target_link_libraries(driver mpi mpi_cxx)
 target_link_libraries(driver iomp5 pthread m dl cublas cudart cuda curand cusolver nvToolsExt)

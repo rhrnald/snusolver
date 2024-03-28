@@ -1,6 +1,7 @@
 #include "mpi.h"
 #include "parmetis_driver.h"
 #include "snusolver.h"
+#include "read_matrix.h"
 
 static int np, iam;
 static int *sizes;
@@ -34,8 +35,29 @@ int main(int argc, char *argv[]) {
       0.2876822,  0.19973612, 0.51757488, 0.6086118,  0.93567469, 0.04185929,
       0.71978582, 0.32142112, 0.40067383, 0.87279979, 0.23431602};
 
-//csr_matrix A_csr = read_matrix(argc, argv)
-  csr_matrix A_csr = {n, n, nnz, rowptr, colidx, data};
+  //csr_matrix A_csr = {n, n, nnz, rowptr, colidx, data};
+  csr_matrix A_csr = read_matrix(argc, argv);
+
+  // print csr_matrix 
+  if(!iam) {
+    printf("A_csr\n");
+    printf("n: %d, m: %d, nnz: %d\n", A_csr.n, A_csr.m, A_csr.nnz);
+    printf("rowptr: ");
+    for(int i = 0; i < A_csr.n + 1; i++) {
+      printf("%d ", A_csr.rowptr[i]);
+    }
+    printf("\n");
+    printf("colidx: ");
+    for(int i = 0; i < A_csr.nnz; i++) {
+      printf("%d ", A_csr.colidx[i]);
+    }
+    printf("\n");
+    printf("data: ");
+    for(int i = 0; i < A_csr.nnz; i++) {
+      printf("%f ", A_csr.data[i]);
+    }
+    printf("\n");
+  }
 
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
