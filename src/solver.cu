@@ -1,7 +1,7 @@
-#include "mpi.h"
-#include "snusolver.h"
 #include "kernel.h"
 #include "kernel_gpu.h"
+#include "mpi.h"
+#include "snusolver.h"
 
 #include <algorithm>
 #include <cuda_runtime.h>
@@ -26,12 +26,13 @@ static MPI_Comm comm = MPI_COMM_WORLD;
 static MPI_Request *request;
 
 // static int iam;
-// #define gpuErrchk(ans)                                                         \
+// #define gpuErrchk(ans) \
 //   { gpuAssert((ans), __FILE__, __LINE__); }
 // inline void gpuAssert(cudaError_t code, const char *file, int line,
 //                       bool abort = true) {
 //   if (code != cudaSuccess) {
-//     fprintf(stderr, "%d: GPUassert: %s %s %d\n", iam, cudaGetErrorString(code),
+//     fprintf(stderr, "%d: GPUassert: %s %s %d\n", iam,
+//     cudaGetErrorString(code),
 //             file, line);
 //     if (abort)
 //       exit(code);
@@ -56,7 +57,7 @@ static int who[NP + NP];
 
 //////////////////////////////////////
 static const double eps = 1e-15;
-static int offlvl = 10;
+static int offlvl = -1;
 
 static vector<int> my_block, my_block_level[LEVEL + 1];
 static int *merge_start, *merge_size;
@@ -102,7 +103,7 @@ static double *LU_buf;
 static int *LU_buf_int;
 static int *gpu_row_buf, *gpu_col_buf;
 static double *gpu_data_buf, *LU_buf_gpu;
-static int *order;
+static int *order, *sizes;
 //////////////////////////////////////
 
 #include "solver_part2.h"
@@ -283,13 +284,6 @@ static void construct(csr_matrix A) {
   for (int i = num_block; i >= 1; i--)
     merge_size[i] = merge_size[i - 1] - merge_size[i];
 
-  // for (int c = cols - 1; c >= 0; c--) {
-  //   for (int idx = indptr[c + 1] - 1; idx >= indptr[c]; idx--) {
-  //     int r = indices[idx];
-  //     construct_map[idx] = addElement(block[r], block[c], r, c);
-  //   }
-  // }
-
   for (int r = rows - 1; r >= 0; r--) {
     for (int idx = indptr[r + 1] - 1; idx >= indptr[r]; idx--) {
       int c = indices[idx];
@@ -305,12 +299,8 @@ static void construct(csr_matrix A) {
 }
 
 void construct_all(csr_matrix A_csr, int *sizes, int *_order, double *b) {
-  order=_order;
-  MPI_Comm_rank(comm, &iam);
-  MPI_Comm_size(comm, &np);
-  n = A_csr.n, nnz = A_csr.nnz;
+  order = _order;
 
-  MPI_Bcast(&nnz, 1, MPI_INT, 0, comm);
   num_block = np + np - 1;
   merge_start = (int *)malloc(sizeof(int) * (num_block + 1));
   merge_size = (int *)malloc(sizeof(int) * (num_block + 1));
@@ -327,46 +317,46 @@ void construct_all(csr_matrix A_csr, int *sizes, int *_order, double *b) {
     csr_matrix PA = permutate(A_csr, order);
     construct(PA);
 
-    
     for (int i = 0; i < nnz; i++)
       coo_val[perm_map[i]] = A_csr.data[i];
 
-
     old_block_start = (int *)malloc(sizeof(int) * (np * 2));
     memcpy(old_block_start, block_start, sizeof(int) * (np * 2));
+
     perm_b = (double *)malloc(sizeof(double) * n);
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
       perm_b[order[i]] = b[i];
+    }
+      
   }
 }
 
+void self_submatrix(int i, int j) {
+  int nnz = grid(i, j).nnz;
+
+  int b = rs_cur;
+  rs_cur += nnz;
+
+  A[rs_idx] = {block_size[i], block_size[j], nnz,
+                loc_r + b,     loc_c + b,     loc_val + b};
+  Amap[{i, j}] = rs_idx;
+  rs_idx++;
+
+  memcpy(loc_r + b, grid(i, j).row, nnz * sizeof(int));
+  memcpy(loc_c + b, grid(i, j).col, nnz * sizeof(int));
+
+  for (int idx = 0; idx < nnz; idx++)
+    loc_r[b + idx] -= block_start[i];
+  for (int idx = 0; idx < nnz; idx++)
+    loc_c[b + idx] -= block_start[j];
+}
 void send_submatrix(int proc, int i, int j) {
-  if (!proc) {
-    int nnz = grid(i, j).nnz;
+  
+  int loc_nnz = grid(i, j).nnz;
 
-    int b = rs_cur;
-    rs_cur += nnz;
-
-    A[rs_idx] = {block_size[i], block_size[j], nnz,
-                 loc_r + b,     loc_c + b,     loc_val + b};
-    Amap[{i, j}] = rs_idx;
-    rs_idx++;
-
-    memcpy(loc_r + b, grid(i, j).row, nnz * sizeof(int));
-    memcpy(loc_c + b, grid(i, j).col, nnz * sizeof(int));
-
-    for (int idx = 0; idx < nnz; idx++)
-      loc_r[b + idx] -= block_start[i];
-    for (int idx = 0; idx < nnz; idx++)
-      loc_c[b + idx] -= block_start[j];
-
-  } else {
-    int loc_nnz = grid(i, j).nnz;
-
-    MPI_Send(&loc_nnz, 1, MPI_INT, proc, 0, comm);
-    MPI_Send(grid(i, j).row, loc_nnz, MPI_INT, proc, 0, comm);
-    MPI_Send(grid(i, j).col, loc_nnz, MPI_INT, proc, 0, comm);
-  }
+  MPI_Send(&loc_nnz, 1, MPI_INT, proc, 0, comm);
+  MPI_Send(grid(i, j).row, loc_nnz, MPI_INT, proc, 0, comm);
+  MPI_Send(grid(i, j).col, loc_nnz, MPI_INT, proc, 0, comm);
 }
 
 static void receive_submatrix(int i, int j) {
@@ -392,35 +382,52 @@ static void receive_submatrix(int i, int j) {
 }
 
 static void send_data_merge_async(int i, MPI_Request *t) {
-  if(who[i]) {
     MPI_Isend(grid(i, i).data, merge_size[i], MPI_DOUBLE, who[i], i, comm, t);
-  }
 }
 static void send_data_a() {
-  vector<MPI_Request> req(num_block + 1);
+  int cnt = 0;
+  
+  send_order = (int *)malloc(sizeof(int) * (np * 2));
+  vector<vector<int>> v;
+  v.resize(np);
+  for (int i = num_block; i >= 1; i--)
+    v[who[i]].push_back(i);
+  for (int k = 0; k < (int)(v[0].size()); k++) {
+    for (int p = 0; p < np; p++) {
+      if (int(v[p].size()) <= k)
+        continue;
+      send_order[cnt++] = v[p][k];
+    }
+  }
+
   for (int idx = 0; idx < num_block; idx++) {
     int i = send_order[idx];
-    send_data_merge_async(i, &(req[i]));
+    
+  // for (int i = num_block; i >= 1; i--) {
+    if(who[i]) send_data_merge_async(i, request+i);
   }
-  for(auto &i : my_block) {
-    memcpy(loc_val+merge_start[i], grid(i, i).data, merge_size[i]*sizeof(double));
+
+  free(send_order);
+
+  for (auto &i : my_block) {
+    memcpy(loc_val + merge_start[i], grid(i, i).data,
+           merge_size[i] * sizeof(double));
+    set_all_LU(i);
   }
-  for (int i = num_block; i >= 1; i--)
-    MPI_Wait(&(req[i]), MPI_STATUS_IGNORE);
-}
-void get_data_a_sync(int e) {
-  MPI_Recv(loc_val + merge_start[e], merge_size[e], MPI_DOUBLE, 0, e, comm,
-           MPI_STATUS_IGNORE);
+
+  for (int i = num_block; i >= 1; i--) {
+    if(who[i]) MPI_Wait(request+i, MPI_STATUS_IGNORE);
+  }
 }
 void get_data_a_async(int e) {
   MPI_Irecv(loc_val + merge_start[e], merge_size[e], MPI_DOUBLE, 0, e, comm,
-            &(request[e]));
+            request+e);
 }
 static void get_data_a() {
   for (auto &i : my_block)
     get_data_a_async(i);
   for (auto &i : my_block) {
-    MPI_Wait(&request[i], MPI_STATUS_IGNORE);
+    MPI_Wait(request+i, MPI_STATUS_IGNORE);
     set_all_LU(i);
   }
 }
@@ -429,10 +436,10 @@ static void send_data_b() {
   std::fill(_b, _b + local_b_rows, 0.0);
   for (int i = num_block; i >= 1; i--) {
     if (!who[i]) {
-      memcpy(_b+block_start[i], perm_b+old_block_start[i], block_size[i]);
+      memcpy(_b + block_start[i], perm_b + old_block_start[i], block_size[i]*sizeof(double));
     } else {
-      MPI_Send(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i], 0,
-              comm);
+      MPI_Send(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i],
+               0, comm);
     }
   }
 }
@@ -486,10 +493,20 @@ void distribute_all() {
   if (!iam) {
     for (int i = num_block; i >= 1; i--) {
       int p = who[i];
-      send_submatrix(p, i, i);
-      for (int ii = i / 2; ii; ii /= 2) {
-        send_submatrix(p, i, ii);
-        send_submatrix(p, ii, i);
+      if(who[i]) {
+        send_submatrix(p, i, i);
+        for (int ii = i / 2; ii; ii /= 2) {
+          send_submatrix(p, i, ii);
+          send_submatrix(p, ii, i);
+        }
+      } else {
+        merge_start[i] = rs_cur;
+        self_submatrix(i, i);
+        for (int ii = i / 2; ii; ii /= 2) {
+          self_submatrix(i, ii);
+          self_submatrix(ii, i);
+        }
+        merge_size[i] = rs_cur - merge_start[i];
       }
     }
   } else {
@@ -515,22 +532,32 @@ void distribute_all() {
   malloc_all_LU();
   malloc_all_b();
   core_preprocess();
- 
+  
+  clear_all_LU();
+
   if (!iam) {
     send_data_b();
-    // send_data_a();
+    send_data_a();
   } else {
     get_data_b();
-    // get_data_a();
+    get_data_a();
+  }
+  
+  if (offlvl >= 0 && (!(iam & 1))) {
+    max_nnz=max(max_nnz, n);
+    gpuErrchk(cudaMalloc((void **)&gpu_row_buf, max_nnz * sizeof(int)));
+    gpuErrchk(cudaMalloc((void **)&gpu_col_buf, max_nnz * sizeof(int)));
+    gpuErrchk(cudaMalloc((void **)&gpu_data_buf, max_nnz * sizeof(double)));
   }
 }
 static void gather_data_b() {
   for (int i = num_block; i >= 1; i--) {
-    if(!who[i]) {
-      memcpy(perm_b+old_block_start[i], b[i].data, block_size[i]*sizeof(double));
+    if (!who[i]) {
+      memcpy(perm_b + old_block_start[i], b[i].data,
+             block_size[i] * sizeof(double));
     } else {
-      MPI_Recv(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i], 0, comm,
-            MPI_STATUS_IGNORE);
+      MPI_Recv(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i],
+               0, comm, MPI_STATUS_IGNORE);
     }
   }
 }
@@ -541,10 +568,10 @@ void return_data_b() {
   }
 }
 
-void solve(double *b_ret) {
-  
-  core_run();
+void factsolve(double *b_ret) {
 
+  core_run();
+  
   START()
   for (int l = max_level - 1; l > max(offlvl, -1); l--) {
     for (auto &i : my_block_level[l]) {
@@ -574,126 +601,158 @@ void solve(double *b_ret) {
   if ((!iam))
     cout << "\t" << iam << " Dense LU " << GET() << endl;
 
-  // START()
-  // if (offlvl >= 0 && (!(iam & 1))) {
-  //   b_togpu();
-  //   for (auto &i : all_parents) {
-  //     LU[{i, i}].toGPU();
-  //     for (int j = i / 2; j >= 1; j /= 2) {
-  //       LU[{i, j}].toGPU();
-  //       LU[{j, i}].toGPU();
-  //     }
-  //   }
-  // }
-  // cudaDeviceSynchronize();
-  // if ((!iam))
-  //   cout << "\t" << iam << " Memcpy " << GET() << endl;
+  START()
+  if (offlvl >= 0 && (!(iam & 1))) {
+    b_togpu();
+    for (auto &i : all_parents) {
+      LU[{i, i}].toGPU();
+      for (int j = i / 2; j >= 1; j /= 2) {
+        LU[{i, j}].toGPU();
+        LU[{j, i}].toGPU();
+      }
+    }
+  }
+  cudaDeviceSynchronize();
 
-  // START()
-  // for (int l = min(max_level - 1, offlvl); l >= 0; l--) {
-  //   for (auto &i : my_block_level[l]) {
-  //     snusolver_LU_gpu(LU[{i, i}], cusolverHandle);
-  //     snusolver_trsm_Lxb_gpu(LU[{i, i}], b[i], handle);
+  if ((!iam))
+    cout << "\t" << iam << " Memcpy " << GET() << endl;
+  START()
+  for (int l = min(max_level - 1, offlvl); l >= 0; l--) {
+    for (auto &i : my_block_level[l]) {
+      snusolver_LU_gpu(LU[{i, i}], cusolverHandle);
+      snusolver_trsm_Lxb_gpu(LU[{i, i}], b[i], handle);
 
-  //     for (int j = i / 2; j; j /= 2) {
-  //       snusolver_trsm_xUb_gpu(LU[{i, i}], LU[{j, i}], handle);
-  //       snusolver_trsm_Lxb_gpu(LU[{i, i}], LU[{i, j}], handle);
-  //     }
+      for (int j = i / 2; j; j /= 2) {
+        snusolver_trsm_xUb_gpu(LU[{i, i}], LU[{j, i}], handle);
+        snusolver_trsm_Lxb_gpu(LU[{i, i}], LU[{i, j}], handle);
+      }
 
-  //     for (int j1 = i / 2; j1; j1 /= 2) {
-  //       for (int j2 = i / 2; j2; j2 /= 2) {
-  //         snusolver_gemm_gpu(LU[{j1, i}], LU[{i, j2}], LU[{j1, j2}], handle);
-  //       }
-  //     }
+      for (int j1 = i / 2; j1; j1 /= 2) {
+        for (int j2 = i / 2; j2; j2 /= 2) {
+          snusolver_gemm_gpu(LU[{j1, i}], LU[{i, j2}], LU[{j1, j2}], handle);
+        }
+      }
 
-  //     for (int j = i / 2; j; j /= 2) {
-  //       snusolver_gemm_gpu(LU[{j, i}], b[i], b[j], handle);
-  //     }
-  //   }
-  //   for (auto &i : my_block_level[l]) {
-  //     reduction_gpu(i);
-  //   }
-  // }
-  // if ((!iam))
-  //   cout << "\t" << iam << " Dense LU gpu " << GET() << endl;
+      for (int j = i / 2; j; j /= 2) {
+        snusolver_gemm_gpu(LU[{j, i}], b[i], b[j], handle);
+      }
+    }
+    for (auto &i : my_block_level[l]) {
+      reduction_gpu(i);
+    }
+  }
+  if ((!iam))
+    cout << "\t" << iam << " Dense LU gpu " << GET() << endl;
 
-  // START()
-  // for (int l = 0; l <= min(max_level - 1, offlvl); l++) {
-  //   for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
-  //     int i = my_block_level[l][idx];
-  //     scatter_b_gpu(i);
+  START()
+  for (int l = 0; l <= min(max_level - 1, offlvl); l++) {
+    for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
+      int i = my_block_level[l][idx];
+      scatter_b_gpu(i);
 
-  //     for (int j = i / 2; j >= 1; j /= 2) {
-  //       snusolver_gemm_gpu(LU[{i, j}], b[j], b[i], handle);
-  //     }
-  //     snusolver_trsm_Uxb_gpu(LU[{i, i}], b[i], handle);
-  //   }
-  // }
-  // if ((!iam))
-  //   cout << "\t" << iam << " Dense solve gpu " << GET() << endl;
+      for (int j = i / 2; j >= 1; j /= 2) {
+        snusolver_gemm_gpu(LU[{i, j}], b[j], b[i], handle);
+      }
+      snusolver_trsm_Uxb_gpu(LU[{i, i}], b[i], handle);
+    }
+  }
+  if ((!iam))
+    cout << "\t" << iam << " Dense solve gpu " << GET() << endl;
 
-  // if (offlvl >= 0 && (!(iam & 1)))
-  //   b_tocpu();
-  // START()
-  // for (int l = max(offlvl + 1, 0); l < max_level; l++) {
-  //   for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
-  //     int i = my_block_level[l][idx];
-  //     scatter_b(i);
+  if (offlvl >= 0 && (!(iam & 1)))
+    b_tocpu();
+  START()
+  for (int l = max(offlvl + 1, 0); l < max_level; l++) {
+    for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
+      int i = my_block_level[l][idx];
+      scatter_b(i);
 
-  //     for (int j = i / 2; j >= 1; j /= 2) {
-  //       snusolver_gemm(LU[{i, j}], b[j], b[i]);
-  //     }
-  //     snusolver_trsm_Uxb(LU[{i, i}], b[i]);
-  //   }
-  // }
-  // if ((!iam))
-  //   cout << "\t" << iam << " Dense solve " << GET() << endl;
+      for (int j = i / 2; j >= 1; j /= 2) {
+        snusolver_gemm(LU[{i, j}], b[j], b[i]);
+      }
+      snusolver_trsm_Uxb(LU[{i, i}], b[i]);
+    }
+  }
+  if ((!iam))
+    cout << "\t" << iam << " Dense solve " << GET() << endl;
 
-  // START() {
-  //   scatter_b(leaf);
-  //   // // TODODO
-  //   // START()
-  //   // int blockSize = 256;
-  //   // int gridSize = (leaf_size + blockSize - 1) / blockSize;
+  START() {
+    scatter_b(leaf);
+    // // TODODO
+    // START()
+    // int blockSize = 256;
+    // int gridSize = (leaf_size + blockSize - 1) / blockSize;
 
-  //   // kernel4_1<<<gridSize, blockSize>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu,
-  //   //                                    LU_data_gpu, LU_bias_gpu, LU_diag_gpu,
-  //   //                                    leaf_size);
-  //   // cudaDeviceSynchronize();
-  //   // if ( (! iam) && 0) cout << "\t" << iam << " step4-1! " << GET() << endl;
-  //   // START()
-  //   // kernel4_2<<<1, 32>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu, LU_data_gpu,
-  //   //                      LU_bias_gpu, LU_diag_gpu, LU_colptr_trans_gpu,
-  //   //                      LU_rowidx_trans_gpu, LU_diag_trans_gpu,
-  //   //                      LU_trans_map_gpu, leaf_size);
-  //   // cudaDeviceSynchronize();
+    // kernel4_1<<<gridSize, blockSize>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu,
+    //                                    LU_data_gpu, LU_bias_gpu, LU_diag_gpu,
+    //                                    leaf_size);
+    // cudaDeviceSynchronize();
+    // if ( (! iam) && 0) cout << "\t" << iam << " step4-1! " << GET() << endl;
+    // START()
+    // kernel4_2<<<1, 32>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu, LU_data_gpu,
+    //                      LU_bias_gpu, LU_diag_gpu, LU_colptr_trans_gpu,
+    //                      LU_rowidx_trans_gpu, LU_diag_trans_gpu,
+    //                      LU_trans_map_gpu, leaf_size);
+    // cudaDeviceSynchronize();
 
-  //   for (int r = 0; r < leaf_size; r++) {
-  //     for (int ptr = LU_rowptr[r + 1] - 1; ptr >= LU_bias[r]; ptr--) {
-  //       int c = LU_colidx[ptr];
-  //       _b[r] -= LU_data[ptr] * _b[c];
-  //     }
-  //   }
-  //   if ((!iam))
-  //     cout << "\t" << iam << " Sparse solve 1 " << GET() << endl;
+    for (int r = 0; r < leaf_size; r++) {
+      for (int ptr = LU_rowptr[r + 1] - 1; ptr >= LU_bias[r]; ptr--) {
+        int c = LU_colidx[ptr];
+        _b[r] -= LU_data[ptr] * _b[c];
+      }
+    }
+    if ((!iam))
+      cout << "\t" << iam << " Sparse solve 1 " << GET() << endl;
 
-  //   START()
-  //   for (int r = leaf_size - 1; r >= 0; r--) {
-  //     for (int ptr = LU_diag[r] + 1; ptr < LU_bias[r]; ptr++) {
-  //       int c = LU_colidx[ptr];
-  //       _b[r] -= LU_data[ptr] * _b[c];
-  //     }
-  //     _b[r] /= LU_data[LU_diag[r]];
-  //   }
-  //   if ((!iam))
-  //     cout << "\t" << iam << " Sparse solve 2 " << GET() << endl;
-  // }
+    START()
+    for (int r = leaf_size - 1; r >= 0; r--) {
+      for (int ptr = LU_diag[r] + 1; ptr < LU_bias[r]; ptr++) {
+        int c = LU_colidx[ptr];
+        _b[r] -= LU_data[ptr] * _b[c];
+      }
+      _b[r] /= LU_data[LU_diag[r]];
+    }
+    if ((!iam))
+      cout << "\t" << iam << " Sparse solve 2 " << GET() << endl;
+  }
 
-  // if(!iam) {
-  //   gather_data_b();
-  //   for (int i = 0; i < n; i++)
-  //     b_ret[i] = perm_b[order[i]];
-  // } else {
-  //   return_data_b();
-  // }
+
+  if(!iam) {
+    gather_data_b();
+    for (int i = 0; i < n; i++)
+      b_ret[i] = perm_b[order[i]];
+  } else {
+    return_data_b();
+  }
+}
+
+void createHandle() {
+  cublasCreate(&handle);
+  cusolverDnCreate(&cusolverHandle);
+}
+
+
+
+void solve(csr_matrix A_csr, double *b, double *x) {
+  MPI_Comm_rank(comm, &iam);
+  MPI_Comm_size(comm, &np);
+  
+  if (!iam) {
+    n = A_csr.n, nnz = A_csr.nnz;
+  }
+
+  MPI_Bcast(&n, sizeof(int), MPI_BYTE, 0, comm);
+  MPI_Bcast(&nnz, sizeof(int), MPI_BYTE, 0, comm);
+
+  A_csr.n = n, A_csr.nnz = nnz;
+
+  sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
+  order = (int *)malloc(sizeof(int) * n);
+  
+  call_parmetis(A_csr, sizes, order);
+  construct_all(A_csr, sizes, order, b);
+  distribute_all();
+  factsolve(x);
+  free(sizes);
+  free(order);
 }

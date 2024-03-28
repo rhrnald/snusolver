@@ -131,8 +131,8 @@ static void clear_LU(int i, int j) {
   int col = e.m;
 
   std::fill(e.data, e.data + row * col, 0.0);
-  if (e.able)
-    cudaMemset(e.data_gpu, 0, row * col * sizeof(double));
+  // if (e.able)
+  //   cudaMemset(e.data_gpu, 0, row * col * sizeof(double));
 }
 
 __global__ void copySparseToDense(const int *row, const int *col,

@@ -279,27 +279,11 @@ void reduction_gpu(int block_num) { // Todo change to MPI_REDUCE & non blocking
         int blockSize = 256;
         int gridSize = (cnt + blockSize - 1) / blockSize;
 
-        // double *tmp;
-        // gpuErrchk(cudaMalloc(&tmp, sizeof(double) * cnt));
         MPI_Recv(MM_buf_gpu, cnt * sizeof(double), MPI_BYTE, src,
                  j1 * num_block + j2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        // gpuErrchk(cudaMemcpy(MM_buf_gpu, M.data, cnt * sizeof(double),
-        //                      cudaMemcpyHostToDevice));
         vectorAdd<<<gridSize, blockSize>>>(M.data_gpu, MM_buf_gpu, cnt);
         cudaDeviceSynchronize();
-        // cudaFree(tmp);
       }
-
-      // int cnt = b[j1].n;
-      // int blockSize = 256;
-      // int gridSize = (cnt + blockSize - 1) / blockSize;
-
-      // MPI_Recv(b[j1].data, cnt, MPI_DOUBLE, src, j1, MPI_COMM_WORLD,
-      //          MPI_STATUS_IGNORE);
-      // gpuErrchk(cudaMemcpy(gpu_data_buf, b[j1].data, cnt * sizeof(double),
-      //                      cudaMemcpyHostToDevice));
-      // vectorAdd<<<gridSize, blockSize>>>(b[j1].data_gpu, gpu_data_buf, cnt);
-      // cudaDeviceSynchronize();
     }
     int cnt = core_n - block_start[block_num / 2];
     int blockSize = 256;
@@ -307,9 +291,6 @@ void reduction_gpu(int block_num) { // Todo change to MPI_REDUCE & non blocking
 
     MPI_Recv(gpu_data_buf, cnt, MPI_DOUBLE, src, block_num / 2, MPI_COMM_WORLD,
              MPI_STATUS_IGNORE);
-    // gpuErrchk(cudaMemcpy(gpu_data_buf, b[block_num/2].data, cnt *
-    // sizeof(double),
-    //                       cudaMemcpyHostToDevice));
     vectorAdd<<<gridSize, blockSize>>>(b[block_num / 2].data_gpu, gpu_data_buf,
                                        cnt);
     cudaDeviceSynchronize();
@@ -323,18 +304,9 @@ void reduction_gpu(int block_num) { // Todo change to MPI_REDUCE & non blocking
       for (int j2 = block_num / 2; j2; j2 /= 2) {
         auto &M = LU[{j1, j2}];
         int cnt = M.n * M.m;
-        // gpuErrchk(cudaMemcpy(M.data, M.data_gpu, cnt * sizeof(double),
-        //                      cudaMemcpyDeviceToHost));
         MPI_Send(M.data_gpu, cnt * sizeof(double), MPI_BYTE, dst,
                  j1 * num_block + j2, MPI_COMM_WORLD);
       }
-
-      // int cnt = b[j1].n;
-      // double *tmp = (double *) malloc(sizeof(double) * cnt);
-      // gpuErrchk(cudaMemcpy(tmp, b[j1].data_gpu, cnt * sizeof(double),
-      //                      cudaMemcpyDeviceToHost));
-      // MPI_Send(tmp, cnt, MPI_DOUBLE, dst, j1, MPI_COMM_WORLD);
-      // free(tmp);
     }
     int cnt = core_n - block_start[block_num / 2];
     MPI_Send(b[block_num / 2].data_gpu, cnt, MPI_DOUBLE, dst, block_num / 2,

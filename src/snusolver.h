@@ -32,4 +32,7 @@ public:
 void call_parmetis(csr_matrix A, int *sizes, int *order);
 void construct_all(csr_matrix A_csr, int *sizes, int *order, double *b);
 void distribute_all();
-void solve(double *b_ret);
+void factsolve(double *b_ret);
+void createHandle();
+
+void solve(csr_matrix A_csr, double *b, double *x);
