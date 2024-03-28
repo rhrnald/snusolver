@@ -66,7 +66,7 @@ int main(int argc, char *argv[]) {
   solve(A_csr, b, x);
 
   if (!iam) {
-    std::cout << "TIME: " << GET() << std::endl;
+    std::cout << "TOTAL TIME: " << GET() << std::endl;
     check(A_csr, b, x);
   }
 

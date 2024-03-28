@@ -757,17 +757,16 @@ void solve(csr_matrix A_csr, double *b, double *x) {
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
 
+          
+          MPI_Barrier(comm); START1();
   call_parmetis(A_csr, sizes, order);
+          MPI_Barrier(comm); if(!iam) cout << "parmetis: " << GET1() << endl; START1();
   construct_all(A_csr, sizes, order, b);
+          MPI_Barrier(comm); if(!iam) cout << "construct: " << GET1() << endl; START1();
   distribute_all();
-
-  MPI_Barrier(comm);
-  START1()
-  
+          MPI_Barrier(comm); if(!iam) cout << "distribute: " << GET1() << endl; START1();
   factsolve(x);
-
-  MPI_Barrier(comm);
-  if(!iam) cout << "fact: " << GET1() << endl;
+          MPI_Barrier(comm); if(!iam) cout << "fact: " << GET1() << endl; START1();
 
   free(sizes);
   free(order);
