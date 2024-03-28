@@ -11,13 +11,6 @@ static MPI_Comm comm = MPI_COMM_WORLD;
 
 static std::chrono::time_point<std::chrono::system_clock> sss, eee;
 
-#define START() sss = std::chrono::system_clock::now();
-#define END() eee = std::chrono::system_clock::now();
-#define GET()                                                                  \
-  (std::chrono::duration_cast<std::chrono::duration<float>>(                   \
-       (eee = std::chrono::system_clock::now()) - sss)                         \
-       .count())
-
 void check(csr_matrix A, double *b, double *x) {
   int n = A.n;
   double M = 0;
@@ -59,14 +52,11 @@ int main(int argc, char *argv[]) {
     for (int i = 0; i < A_csr.n; i++) {
       b[i] = dis(gen);
     }
-
-    START();
   }
 
   solve(A_csr, b, x);
 
   if (!iam) {
-    std::cout << "TOTAL TIME: " << GET() << std::endl;
     check(A_csr, b, x);
   }
 
