@@ -34,22 +34,17 @@ int main(int argc, char *argv[]) {
       0.2876822,  0.19973612, 0.51757488, 0.6086118,  0.93567469, 0.04185929,
       0.71978582, 0.32142112, 0.40067383, 0.87279979, 0.23431602};
 
+//csr_matrix A_csr = read_matrix(argc, argv)
   csr_matrix A_csr = {n, n, nnz, rowptr, colidx, data};
-
-
 
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
-
   call_parmetis(A_csr, sizes, order);
   
   if(!iam) {
    // construct_all(A_csr, sizes, order);
   }
-//   
-
-//   free(buf2);
-//   free(buf1);
+//
 
   free(sizes);
   free(order);
