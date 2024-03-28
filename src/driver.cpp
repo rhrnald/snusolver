@@ -9,7 +9,7 @@ static MPI_Comm comm = MPI_COMM_WORLD;
 
 #include <chrono>
 
-std::chrono::time_point<std::chrono::system_clock> sss, eee;
+static std::chrono::time_point<std::chrono::system_clock> sss, eee;
 
 #define START() sss = std::chrono::system_clock::now();
 #define END() eee = std::chrono::system_clock::now();

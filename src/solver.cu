@@ -10,6 +10,15 @@
 
 #include <chrono>
 
+static std::chrono::time_point<std::chrono::system_clock> sss, eee;
+
+#define START1() sss = std::chrono::system_clock::now();
+#define END1() eee = std::chrono::system_clock::now();
+#define GET1()                                                                  \
+  (std::chrono::duration_cast<std::chrono::duration<float>>(                   \
+       (eee = std::chrono::system_clock::now()) - sss)                         \
+       .count())
+
 std::chrono::time_point<std::chrono::system_clock> s, e;
 
 #define START() s = std::chrono::system_clock::now();
@@ -751,7 +760,15 @@ void solve(csr_matrix A_csr, double *b, double *x) {
   call_parmetis(A_csr, sizes, order);
   construct_all(A_csr, sizes, order, b);
   distribute_all();
+
+  MPI_Barrier(comm);
+  START1()
+  
   factsolve(x);
+
+  MPI_Barrier(comm);
+  if(!iam) cout << "fact: " << GET1() << endl;
+
   free(sizes);
   free(order);
 }
