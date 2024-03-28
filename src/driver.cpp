@@ -1,11 +1,12 @@
 #include "mpi.h"
-#include "parmetis_driver.h"
-#include "snusolver.h"
 #include "read_matrix.h"
+#include "snusolver.h"
 
 static int np, iam;
 static int *sizes;
 static int *order;
+
+static MPI_Comm comm = MPI_COMM_WORLD;
 
 int main(int argc, char *argv[]) {
   MPI_Init(&argc, &argv);
@@ -13,8 +14,6 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &iam);
   MPI_Comm_size(MPI_COMM_WORLD, &np);
 
-  int n = 20;
-  int nnz = 65;
   int colidx[65] = {0,  2,  7,  12, 14, 16, 1,  2,  2,  5, 9,  12, 3,
                     4,  6,  5,  14, 15, 16, 6,  11, 19, 7, 2,  8,  9,
                     19, 0,  10, 16, 2,  7,  11, 12, 2,  5, 8,  10, 12,
@@ -35,43 +34,37 @@ int main(int argc, char *argv[]) {
       0.2876822,  0.19973612, 0.51757488, 0.6086118,  0.93567469, 0.04185929,
       0.71978582, 0.32142112, 0.40067383, 0.87279979, 0.23431602};
 
-  //csr_matrix A_csr = {n, n, nnz, rowptr, colidx, data};
-  csr_matrix A_csr = read_matrix(argc, argv);
-
-  // print csr_matrix 
-  if(!iam) {
-    printf("A_csr\n");
-    printf("n: %d, m: %d, nnz: %d\n", A_csr.n, A_csr.m, A_csr.nnz);
-    printf("rowptr: ");
-    for(int i = 0; i < A_csr.n + 1; i++) {
-      printf("%d ", A_csr.rowptr[i]);
-    }
-    printf("\n");
-    printf("colidx: ");
-    for(int i = 0; i < A_csr.nnz; i++) {
-      printf("%d ", A_csr.colidx[i]);
-    }
-    printf("\n");
-    printf("data: ");
-    for(int i = 0; i < A_csr.nnz; i++) {
-      printf("%f ", A_csr.data[i]);
-    }
-    printf("\n");
+  // csr_matrix A_csr = {n, n, nnz, rowptr, colidx, data};
+  csr_matrix A_csr;
+  double b[20] = {0.165376, 0.002928, 0.964413, 0.799829, 0.910767,
+                  0.41243,  0.310289, 0.939148, 0.109488, 0.265184,
+                  0.472562, 0.64517,  0.359738, 0.329123, 0.146323,
+                  0.605868, 0.199445, 0.093073, 0.833916, 0.792036};
+  double x[20];
+  if (!iam) {
+    A_csr = read_matrix(argc, argv);
+    // b = (double*)malloc(sizeof(double)*A_csr.n);
   }
+
+  int n, nnz;
+  if (!iam) {
+    n = A_csr.n, nnz = A_csr.nnz;
+  }
+
+  MPI_Bcast(&n, sizeof(int), MPI_BYTE, 0, comm);
+  MPI_Bcast(&nnz, sizeof(int), MPI_BYTE, 0, comm);
+  A_csr.n = n, A_csr.nnz = nnz;
 
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
+
   call_parmetis(A_csr, sizes, order);
-  
-  if(!iam) {
-   // construct_all(A_csr, sizes, order);
-  }
-//
+
+  construct_all(A_csr, sizes, order, b);
+  distribute_all();
+  solve(x);
 
   free(sizes);
   free(order);
-
-  // main_solver();
-
   MPI_Finalize();
 }

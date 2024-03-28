@@ -4,8 +4,8 @@
 #include <map>
 #include <vector>
 
-#include "snusolver.h"
 #include "parmetis.h"
+#include "snusolver.h"
 
 using namespace std;
 
@@ -14,7 +14,6 @@ static MPI_Comm comm = MPI_COMM_WORLD;
 
 static csr_matrix addTransposeEliminateDiag(csr_matrix A, int *buf1,
                                             int *buf2) {
-  // assert rows=cols;
   int rows = A.n, cols = A.m, nnz = A.nnz, *rowidx = A.colidx,
       *colptr = A.rowptr;
   vector<int> rowidx_t(nnz);
@@ -72,8 +71,7 @@ static csr_matrix addTransposeEliminateDiag(csr_matrix A, int *buf1,
 }
 
 // int main_parmetis(int argc, char *argv[]) {
-void call_parmetis(csr_matrix &A, int *sizes, int *order) {
-
+void call_parmetis(csr_matrix A, int *sizes, int *order) {
   MPI_Comm_rank(comm, &iam);
   MPI_Comm_size(comm, &np);
 
@@ -82,7 +80,6 @@ void call_parmetis(csr_matrix &A, int *sizes, int *order) {
   int options[4] = {0, 0, 0, 1};
   int *vtxdist, *colidx_loc, *rowptr_loc;
   int nnz, n = A.n;
-
   if (!iam) {
     int *buf1 = (int *)malloc(sizeof(int) * (n + 1));
     int *buf2 = (int *)malloc(sizeof(int) * (A.nnz + A.nnz));
@@ -138,13 +135,13 @@ void call_parmetis(csr_matrix &A, int *sizes, int *order) {
     free(buf2);
   } else {
     MPI_Bcast(&nnz, sizeof(int), MPI_BYTE, 0, comm);
-    // nnz = 82;
     vtxdist = (int *)malloc(sizeof(int) * (np + 1));
     for (int i = 0; i <= np; i++)
       vtxdist[i] = (int)(1ll * n * i / np);
     loc_n = vtxdist[iam + 1] - vtxdist[iam];
 
     rowptr_loc = (int *)malloc(sizeof(int) * (loc_n + 1));
+
     MPI_Scatterv(nullptr, 0, 0, MPI_INT, rowptr_loc, loc_n + 1, MPI_INT, 0,
                  comm);
 

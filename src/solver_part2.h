@@ -1,113 +1,3 @@
-#include <mpi.h>
-#include <omp.h>
-#include <sys/socket.h>
-#include <unistd.h>
-
-#include <algorithm>
-#include <cstdio>
-#include <map>
-#include <vector>
-
-#include "kernel.h"
-#include "kernel_gpu.h"
-#include "mkl.h"
-#include "parmetis.h"
-#include "snusolver.h"
-#include "solver_driver.h"
-
-using namespace std;
-
-#include <chrono>
-
-std::chrono::time_point<std::chrono::system_clock> s, e;
-
-#define START() s = std::chrono::system_clock::now();
-#define END() e = std::chrono::system_clock::now();
-#define GET()                                                                  \
-  (std::chrono::duration_cast<std::chrono::duration<float>>(                   \
-       (e = std::chrono::system_clock::now()) - s)                             \
-       .count())
-
-static int ngpus, omp_mpi_level, max_level;
-static int nnz, cols, rows, num_block, local_b_rows;
-static MPI_Comm parent, metis_comm = MPI_COMM_WORLD;
-static MPI_Request *request;
-
-static const int LEVEL = 10;
-static const int PARTS = 1 << LEVEL;
-static int who[PARTS + PARTS];
-static int level[PARTS + PARTS];
-
-static const double eps = 1e-15;
-static int offlvl = 10;
-
-static vector<int> my_block, my_block_level[LEVEL + 1];
-static int *merge_start, *merge_size;
-static vector<int> all_parents;
-static int *block_start, *block_size, *which_block;
-
-static int mat_cnt, loc_nnz, max_nnz, leaf, leaf_size;
-
-static int *loc_r, *loc_c;
-static double *loc_val;
-
-static coo_matrix *A;
-static map<pair<int, int>, int> Amap;
-
-static int dense_row;
-
-static map<pair<int, int>, dense_matrix> LU;
-
-static double *_b;
-static map<int, dense_matrix> b;
-static double *_b_gpu;
-
-static int core_n, core_m, core_nnz, LU_nnz;
-static int *core_rowptr, *core_colidx, *core_map;
-static double *core_data;
-static int *LU_rowptr, *LU_colidx, *LU_diag, *LU_bias, *LU_map;
-static int *LU_rowptr_gpu, *LU_colidx_gpu, *LU_diag_gpu, *LU_bias_gpu,
-    *LU_map_gpu;
-
-static int *LU_rowidx_trans, *LU_colptr_trans, *LU_trans_map, *LU_diag_trans;
-static int *LU_rowidx_trans_gpu, *LU_colptr_trans_gpu, *LU_trans_map_gpu,
-    *LU_diag_trans_gpu;
-
-static int *L_rowidx_trans, *L_colptr_trans, *L_trans_bt;
-static int *L_rowidx_trans_gpu, *L_colptr_trans_gpu, *L_trans_bt_gpu;
-
-static double *LU_data, *LU_data_gpu, *MM_buf, *MM_buf2, *MM_buf_gpu;
-
-static cublasHandle_t handle;
-static cusolverDnHandle_t cusolverHandle;
-
-static double *LU_buf;
-static int *LU_buf_int;
-static int *gpu_row_buf, *gpu_col_buf;
-static double *gpu_data_buf, *LU_buf_gpu;
-
-void print_gpu_mem() {
-  size_t free_byte, total_byte;
-  cudaMemGetInfo(&free_byte, &total_byte);
-  std::cout << iam << "  " << free_byte / 1.0e9 << " Gbytes / "
-            << total_byte / 1.0e9 << " Gbytes\n";
-}
-
-void dense_matrix::toCPU() {
-  cudaMemcpy(data, data_gpu, n * m * sizeof(double), cudaMemcpyDeviceToHost);
-}
-void dense_matrix::toGPU() {
-  // if (able)
-  cudaMemcpy(data_gpu, data, n * m * sizeof(double), cudaMemcpyHostToDevice);
-}
-static int _who(int block) {
-  while (block >= ngpus + ngpus)
-    block /= 2;
-  while (block < ngpus)
-    block = block + block + 1;
-  return ngpus + ngpus - block - 1;
-}
-
 static void malloc_LU(int i, int j, int lvl) {
   int row = block_size[i];
   int col = block_size[j];
@@ -174,10 +64,16 @@ static void set_LU(int i, int j) {
         gpu_row_buf, gpu_col_buf, gpu_data_buf, e.data_gpu, e.n, M.nnz);
   }
 }
-
+void dense_matrix::toCPU() {
+  cudaMemcpy(data, data_gpu, n * m * sizeof(double), cudaMemcpyDeviceToHost);
+}
+void dense_matrix::toGPU() {
+  // if (able)
+  cudaMemcpy(data_gpu, data, n * m * sizeof(double), cudaMemcpyHostToDevice);
+}
 static void malloc_all_LU() {
   for (auto &i : all_parents) {
-    if (i >= ngpus)
+    if (i >= np)
       continue;
     int lvl = level[i];
     malloc_LU(i, i, lvl);
@@ -189,7 +85,7 @@ static void malloc_all_LU() {
 }
 static void free_all_LU() {
   for (auto &i : all_parents) {
-    if (i >= ngpus)
+    if (i >= np)
       continue;
     int lvl = level[i];
     free_LU(i, i, lvl);
@@ -224,7 +120,7 @@ static void free_all_b() {
 
 static void clear_all_LU() {
   for (auto &i : all_parents) {
-    if (i >= ngpus)
+    if (i >= np)
       continue;
     clear_LU(i, i);
     for (int j = i / 2; j >= 1; j /= 2) {
@@ -238,7 +134,7 @@ static void clear_all_LU() {
 }
 static void set_all_LU(int i) {
   // for(auto &i: my_block) {
-  if (i >= ngpus)
+  if (i >= np)
     return;
   set_LU(i, i);
   for (int j = i / 2; j >= 1; j /= 2) {
@@ -248,28 +144,6 @@ static void set_all_LU(int i) {
   //
 }
 
-static int rs_idx, rs_cur;
-static void receive_submatrix(int i, int j) {
-  int nnz;
-  MPI_Recv(&nnz, 1, MPI_INT, 0, 0, parent, MPI_STATUS_IGNORE);
-
-  int b = rs_cur;
-  rs_cur += nnz;
-  max_nnz = max(max_nnz, nnz);
-
-  A[rs_idx] = {block_size[i], block_size[j], nnz,
-               loc_r + b,     loc_c + b,     loc_val + b};
-  Amap[{i, j}] = rs_idx;
-  rs_idx++;
-
-  MPI_Recv(loc_r + b, nnz, MPI_INT, 0, 0, parent, MPI_STATUS_IGNORE);
-  MPI_Recv(loc_c + b, nnz, MPI_INT, 0, 0, parent, MPI_STATUS_IGNORE);
-
-  for (int idx = 0; idx < nnz; idx++)
-    loc_r[b + idx] -= block_start[i];
-  for (int idx = 0; idx < nnz; idx++)
-    loc_c[b + idx] -= block_start[j];
-}
 void core_togpu() {
   gpuErrchk(cudaMemcpy(LU_data_gpu, LU_data, (LU_nnz) * sizeof(double),
                        cudaMemcpyHostToDevice));
@@ -281,26 +155,6 @@ void b_togpu() {
 void b_tocpu() {
   gpuErrchk(cudaMemcpy(_b, _b_gpu, local_b_rows * sizeof(double),
                        cudaMemcpyDeviceToHost));
-}
-void get_data_a(int e) {
-  MPI_Recv(loc_val + merge_start[e], merge_size[e], MPI_DOUBLE, 0, e, parent,
-           MPI_STATUS_IGNORE);
-}
-
-void get_data_a_async(int e) {
-  MPI_Irecv(loc_val + merge_start[e], merge_size[e], MPI_DOUBLE, 0, e, parent,
-            &(request[e]));
-}
-void get_data_b() {
-  std::fill(_b, _b + local_b_rows, 0.0);
-  for (auto &i : my_block) {
-    MPI_Recv(b[i].data, b[i].n, MPI_DOUBLE, 0, 0, parent, MPI_STATUS_IGNORE);
-  }
-}
-void return_data_b() {
-  for (auto &i : my_block) {
-    MPI_Send(b[i].data, b[i].n, MPI_DOUBLE, 0, 0, parent);
-  }
 }
 
 void reduction(int block_num) { // Todo change to MPI_REDUCE & non blocking
@@ -969,12 +823,12 @@ void core_preprocess() {
     sum += block_size[i];
   }
   core_n = sum, core_m = sum;
-  which_block = (int *)malloc(sizeof(int) * core_n);
+  //   which_block = (int *)malloc(sizeof(int) * core_n);
 
-  for (auto &i : all_parents) {
-    for (int j = block_start[i]; j < block_start[i] + block_size[i]; j++)
-      which_block[j] = i;
-  }
+  //   for (auto &i : all_parents) {
+  //     for (int j = block_start[i]; j < block_start[i] + block_size[i]; j++)
+  //       which_block[j] = i;
+  //   }
 
   vector<pair<int, int>> core_blocks;
   core_blocks.push_back({leaf, leaf});
@@ -1536,378 +1390,4 @@ void core_run() {
     }
   }
   */
-}
-
-static void get_structure() {
-  MPI_Bcast(&nnz, 1, MPI_INT, 0, parent);
-  MPI_Bcast(&cols, 1, MPI_INT, 0, parent);
-  MPI_Bcast(&rows, 1, MPI_INT, 0, parent);
-
-  MPI_Bcast(&num_block, 1, MPI_INT, 0, parent);
-
-  block_start = (int *)malloc(sizeof(int) * (num_block + 1));
-  block_size = (int *)malloc(sizeof(int) * (num_block + 1));
-  request = (MPI_Request *)malloc(sizeof(MPI_Request) * (num_block + 1));
-
-  MPI_Bcast(block_start + 1, num_block, MPI_INT, 0, parent);
-  MPI_Bcast(block_size + 1, num_block, MPI_INT, 0, parent);
-
-  who[0] = 0;
-  for (int i = 1; i <= num_block; i++)
-    who[i] = _who(i);
-  for (int i = 0; i < PARTS + PARTS; i++)
-    level[i] = 0;
-  for (int e = 1; e <= num_block; e++) {
-    for (int i = e; i > 1; i /= 2)
-      level[e]++;
-  }
-
-  for (int i = num_block; i >= 1; i--)
-    if (who[i] == iam)
-      my_block.push_back(i);
-
-  for (auto &e : my_block) {
-    int l = 0;
-    my_block_level[level[e]].push_back(e);
-  }
-
-  vector<int> vst(num_block + 1, 0);
-  for (int i = 1; i <= num_block; i++) {
-    if (who[i] == iam) {
-      for (int j = i; j >= 1; j /= 2)
-        vst[j] = 1;
-    }
-  }
-  for (int i = num_block; i >= 1; i--)
-    if (vst[i])
-      all_parents.push_back(i);
-
-  MPI_Scatter(nullptr, 0, 0, &mat_cnt, 1, MPI_INT, 0, parent);
-  MPI_Scatter(nullptr, 0, 0, &loc_nnz, 1, MPI_INT, 0, parent);
-
-  loc_r = (int *)malloc(sizeof(int) * loc_nnz);
-  loc_c = (int *)malloc(sizeof(int) * loc_nnz);
-  loc_val = (double *)malloc(sizeof(double) * loc_nnz);
-
-  A = (coo_matrix *)malloc(sizeof(coo_matrix) * mat_cnt);
-
-  max_nnz = 0;
-  rs_idx = 0;
-  rs_cur = 0;
-
-  merge_start = (int *)malloc(sizeof(int) * (num_block + 1));
-  merge_size = (int *)malloc(sizeof(int) * (num_block + 1));
-
-  for (auto &i : my_block) {
-    merge_start[i] = rs_cur;
-    receive_submatrix(i, i);
-    for (int ii = i / 2; ii; ii /= 2) {
-      receive_submatrix(i, ii);
-      receive_submatrix(ii, i);
-    }
-    merge_size[i] = rs_cur - merge_start[i];
-  }
-
-  leaf = ngpus + ngpus - 1 - iam;
-  leaf_size = block_size[leaf];
-
-  local_b_rows = 0;
-  for (auto &i : all_parents)
-    local_b_rows += block_size[i];
-  dense_row = local_b_rows - leaf_size;
-
-  malloc_all_LU();
-  malloc_all_b();
-  core_preprocess();
-}
-
-// __global__ void kernel4_1(double *_b, int *LU_rowptr, int *LU_colidx,
-//                           double *LU_data, int *LU_bias, int *LU_diag,
-//                           int leaf_size) {
-//   int r = blockIdx.x * blockDim.x + threadIdx.x;
-//   if (r >= leaf_size) return;
-//   // for (int r = 0; r < leaf_size; r++) {
-//   for (int ptr = LU_rowptr[r + 1] - 1; ptr >= LU_bias[r]; ptr--) {
-//     int c = LU_colidx[ptr];
-//     _b[r] -= LU_data[ptr] * _b[c];
-//   }
-//   //}
-// }
-// __global__ void kernel4_2(double *_b, int *LU_rowptr, int *LU_colidx,
-//                           double *LU_data, int *LU_bias, int *LU_diag,
-//                           int *LU_colptr_trans, int *LU_rowidx_trans,
-//                           int *LU_diag_trans, int *LU_trans_map,
-//                           int leaf_size) {
-//   int idx = blockIdx.x * blockDim.x + threadIdx.x;
-//   int N = gridDim.x * blockDim.x;
-//   for (int r = leaf_size - 1; r >= 0; r--) {
-//     __syncthreads();
-//     if (idx == 0) { _b[r] /= LU_data[LU_diag[r]]; }
-//     __syncthreads();
-//     double d = _b[r];
-
-//     for (int ptr = LU_colptr_trans[r] + idx; ptr < LU_diag_trans[r]; ptr +=
-//     N) {
-//       int c = LU_rowidx_trans[ptr];
-//       int p = LU_trans_map[ptr];
-//       _b[c] -= LU_data[p] * _b[r];
-//     }
-//   }
-// }
-
-static void solve() {
-  get_data_b();
-  // for(auto &i : my_block) get_data_a(i);
-  // for(auto &i : my_block) set_all_LU(i);
-  for (auto &i : my_block)
-    get_data_a_async(i);
-  for (auto &i : my_block) {
-    MPI_Wait(&request[i], MPI_STATUS_IGNORE);
-    set_all_LU(i);
-  }
-
-  core_run();
-
-  START()
-  for (int l = max_level - 1; l > max(offlvl, -1); l--) {
-    for (auto &i : my_block_level[l]) {
-      snusolver_LU(LU[{i, i}]);
-      snusolver_trsm_Lxb(LU[{i, i}], b[i]);
-
-      for (int j = i / 2; j; j /= 2) {
-        snusolver_trsm_xUb(LU[{i, i}], LU[{j, i}]);
-        snusolver_trsm_Lxb(LU[{i, i}], LU[{i, j}]);
-      }
-
-      for (int j1 = i / 2; j1; j1 /= 2) {
-        for (int j2 = i / 2; j2; j2 /= 2) {
-          snusolver_gemm(LU[{j1, i}], LU[{i, j2}], LU[{j1, j2}]);
-        }
-      }
-
-      for (int j = i / 2; j; j /= 2) {
-        snusolver_gemm(LU[{j, i}], b[i], b[j]);
-      }
-    }
-    for (auto &i : my_block_level[l]) {
-      reduction(i);
-    }
-  }
-
-  if ((!iam))
-    cout << "\t" << iam << " Dense LU " << GET() << endl;
-
-  START()
-  if (offlvl >= 0 && (!(iam & 1))) {
-    b_togpu();
-    for (auto &i : all_parents) {
-      LU[{i, i}].toGPU();
-      for (int j = i / 2; j >= 1; j /= 2) {
-        LU[{i, j}].toGPU();
-        LU[{j, i}].toGPU();
-      }
-    }
-  }
-  cudaDeviceSynchronize();
-  if ((!iam))
-    cout << "\t" << iam << " Memcpy " << GET() << endl;
-
-  START()
-  for (int l = min(max_level - 1, offlvl); l >= 0; l--) {
-    for (auto &i : my_block_level[l]) {
-      snusolver_LU_gpu(LU[{i, i}], cusolverHandle);
-      snusolver_trsm_Lxb_gpu(LU[{i, i}], b[i], handle);
-
-      for (int j = i / 2; j; j /= 2) {
-        snusolver_trsm_xUb_gpu(LU[{i, i}], LU[{j, i}], handle);
-        snusolver_trsm_Lxb_gpu(LU[{i, i}], LU[{i, j}], handle);
-      }
-
-      for (int j1 = i / 2; j1; j1 /= 2) {
-        for (int j2 = i / 2; j2; j2 /= 2) {
-          snusolver_gemm_gpu(LU[{j1, i}], LU[{i, j2}], LU[{j1, j2}], handle);
-        }
-      }
-
-      for (int j = i / 2; j; j /= 2) {
-        snusolver_gemm_gpu(LU[{j, i}], b[i], b[j], handle);
-      }
-    }
-    for (auto &i : my_block_level[l]) {
-      reduction_gpu(i);
-    }
-  }
-  if ((!iam))
-    cout << "\t" << iam << " Dense LU gpu " << GET() << endl;
-
-  START()
-  for (int l = 0; l <= min(max_level - 1, offlvl); l++) {
-    for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
-      int i = my_block_level[l][idx];
-      scatter_b_gpu(i);
-
-      for (int j = i / 2; j >= 1; j /= 2) {
-        snusolver_gemm_gpu(LU[{i, j}], b[j], b[i], handle);
-      }
-      snusolver_trsm_Uxb_gpu(LU[{i, i}], b[i], handle);
-    }
-  }
-  if ((!iam))
-    cout << "\t" << iam << " Dense solve gpu " << GET() << endl;
-
-  if (offlvl >= 0 && (!(iam & 1)))
-    b_tocpu();
-  START()
-  for (int l = max(offlvl + 1, 0); l < max_level; l++) {
-    for (int idx = my_block_level[l].size() - 1; idx >= 0; idx--) {
-      int i = my_block_level[l][idx];
-      scatter_b(i);
-
-      for (int j = i / 2; j >= 1; j /= 2) {
-        snusolver_gemm(LU[{i, j}], b[j], b[i]);
-      }
-      snusolver_trsm_Uxb(LU[{i, i}], b[i]);
-    }
-  }
-  if ((!iam))
-    cout << "\t" << iam << " Dense solve " << GET() << endl;
-
-  START() {
-    scatter_b(leaf);
-    // // TODODO
-    // START()
-    // int blockSize = 256;
-    // int gridSize = (leaf_size + blockSize - 1) / blockSize;
-
-    // kernel4_1<<<gridSize, blockSize>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu,
-    //                                    LU_data_gpu, LU_bias_gpu, LU_diag_gpu,
-    //                                    leaf_size);
-    // cudaDeviceSynchronize();
-    // if ( (! iam) && 0) cout << "\t" << iam << " step4-1! " << GET() << endl;
-    // START()
-    // kernel4_2<<<1, 32>>>(_b_gpu, LU_rowptr_gpu, LU_colidx_gpu, LU_data_gpu,
-    //                      LU_bias_gpu, LU_diag_gpu, LU_colptr_trans_gpu,
-    //                      LU_rowidx_trans_gpu, LU_diag_trans_gpu,
-    //                      LU_trans_map_gpu, leaf_size);
-    // cudaDeviceSynchronize();
-
-    for (int r = 0; r < leaf_size; r++) {
-      for (int ptr = LU_rowptr[r + 1] - 1; ptr >= LU_bias[r]; ptr--) {
-        int c = LU_colidx[ptr];
-        _b[r] -= LU_data[ptr] * _b[c];
-      }
-    }
-    if ((!iam))
-      cout << "\t" << iam << " Sparse solve 1 " << GET() << endl;
-
-    START()
-    for (int r = leaf_size - 1; r >= 0; r--) {
-      for (int ptr = LU_diag[r] + 1; ptr < LU_bias[r]; ptr++) {
-        int c = LU_colidx[ptr];
-        _b[r] -= LU_data[ptr] * _b[c];
-      }
-      _b[r] /= LU_data[LU_diag[r]];
-    }
-    if ((!iam))
-      cout << "\t" << iam << " Sparse solve 2 " << GET() << endl;
-  }
-
-  return_data_b();
-}
-static void finalize() {
-  free_all_LU();
-  free_all_b();
-
-  free(block_start);
-  free(block_size);
-  free(which_block);
-  free(loc_r);
-  free(loc_c);
-  free(loc_val);
-  free(A);
-
-  free(core_rowptr);
-  free(core_colidx);
-  free(core_map);
-  free(core_data);
-
-  free(LU_rowptr);
-  free(LU_colidx);
-  free(LU_diag);
-  free(LU_data);
-  free(LU_bias);
-
-  free(MM_buf);
-  free(MM_buf2);
-  free(LU_buf);
-  free(LU_buf_int);
-
-  free(L_colptr_trans);
-  free(L_rowidx_trans);
-  free(L_trans_bt);
-  free(LU_colptr_trans);
-  free(LU_rowidx_trans);
-  free(LU_trans_map);
-  free(LU_map);
-  free(LU_diag_trans);
-
-  free(merge_start);
-  free(merge_size);
-  free(request);
-  my_block.clear();
-  for (int i = 0; i <= LEVEL; i++)
-    my_block_level[i].clear();
-  all_parents.clear();
-  Amap.clear();
-  LU.clear();
-  b.clear();
-
-  cublasDestroy(handle);
-  cusolverDnDestroy(cusolverHandle);
-}
-
-int main_solver() {
-  // MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &omp_mpi_level);
-  MPI_Comm_get_parent(&parent);
-
-  MPI_Comm_rank(metis_comm, &iam);
-  MPI_Comm_size(metis_comm, &ngpus);
-  max_level = 0;
-
-  for (int i = ngpus; i > 1; i /= 2)
-    max_level++;
-  // MPI_Get_processor_name(processor_name, &name_len);
-
-  // printf("Rank %d of %d on node %s\n", iam, ngpus, processor_name);
-  //  mkl_set_num_threads(32/ngpus);
-  gpuErrchk(cudaSetDevice(iam % 4));
-  cublasCreate(&handle);
-  cusolverDnCreate(&cusolverHandle);
-  get_structure();
-
-  // int max_block_size = 0;
-  // for (int i = (num_block + 1) / 2; i >= 1; i--) {
-  //   max_block_size = max(max_block_size, block_size[i]);
-  // }
-  // max_block_size = max(max_block_size * max_block_size, max_nnz);
-  if (offlvl >= 0 && (!(iam & 1))) {
-    gpuErrchk(cudaMalloc((void **)&gpu_row_buf, max_nnz * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&gpu_col_buf, max_nnz * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&gpu_data_buf, max_nnz * sizeof(double)));
-  }
-
-  SOLVER_COMMAND command;
-  while (true) {
-    clear_all_LU();
-    MPI_Bcast(&command, sizeof(SOLVER_COMMAND), MPI_BYTE, 0, parent);
-    if (command == SOLVER_RUN)
-      solve();
-    else if (command == SOLVER_RESET) {
-      finalize();
-      return 1;
-    } else {
-      finalize();
-      return 0;
-    }
-  }
 }

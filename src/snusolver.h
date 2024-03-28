@@ -10,7 +10,7 @@ typedef struct csr_matrix {
   int n, m, nnz;
   int *rowptr, *colidx;
   double *data;
-};
+} csr_matrix;
 
 typedef struct csc_matrix {
   int n, m, nnz;
@@ -29,4 +29,7 @@ public:
   void toGPU();
 };
 
-int construct_all(csr_matrix A_csr, int *sizes, int *order);
+void call_parmetis(csr_matrix A, int *sizes, int *order);
+void construct_all(csr_matrix A_csr, int *sizes, int *order, double *b);
+void distribute_all();
+void solve(double *b_ret);

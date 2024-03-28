@@ -330,6 +330,7 @@ static void make_who() {
     }
   }
 }
+
 void spawn_solver_processes() {
   START("spawn_solver_processes")
 
@@ -346,8 +347,6 @@ void spawn_solver_processes() {
   //                MPI_COMM_SELF, &childs, MPI_ERRCODES_IGNORE);
 
   MPI_Bcast(&nnz, 1, MPI_INT, MPI_ROOT, childs);
-  MPI_Bcast(&cols, 1, MPI_INT, MPI_ROOT, childs);
-  MPI_Bcast(&rows, 1, MPI_INT, MPI_ROOT, childs);
 
   MPI_Bcast(&num_block, 1, MPI_INT, MPI_ROOT, childs);
 

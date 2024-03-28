@@ -56,12 +56,11 @@ include_directories(${PARMETIS_ROOT}/include)
 include_directories(${PARMETIS_ROOT}/metis/include)
 link_directories(${PARMETIS_ROOT}/build/Linux-x86_64/libparmetis)
 link_directories(${PARMETIS_ROOT}/build/Linux-x86_64/libmetis)
-link_directories(/home/n2/chaewon/12345)
 
 #pybind11_add_module(snusolver_c snusolver_c.cpp)
 #target_link_libraries(snusolver_c PUBLIC mpi mpi_cxx)
 
-add_executable(driver driver.cpp parmetis_driver.cpp construct.cpp kernel.cpp kernel_gpu.cu mmio.c read_matrix.cpp)
+add_executable(driver driver.cpp parmetis_driver.cpp solver.cu kernel.cpp kernel_gpu.cu read_matrix.cpp mmio.cpp)
 target_link_libraries(driver parmetis metis)
 target_link_libraries(driver mpi mpi_cxx)
 target_link_libraries(driver iomp5 pthread m dl cublas cudart cuda curand cusolver nvToolsExt)
