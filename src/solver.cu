@@ -327,7 +327,6 @@ void construct_all(csr_matrix A_csr, int *sizes, int *_order, double *b) {
     for (int i = 0; i < n; i++) {
       perm_b[order[i]] = b[i];
     }
-      
   }
 }
 
@@ -338,7 +337,7 @@ void self_submatrix(int i, int j) {
   rs_cur += nnz;
 
   A[rs_idx] = {block_size[i], block_size[j], nnz,
-                loc_r + b,     loc_c + b,     loc_val + b};
+               loc_r + b,     loc_c + b,     loc_val + b};
   Amap[{i, j}] = rs_idx;
   rs_idx++;
 
@@ -351,7 +350,7 @@ void self_submatrix(int i, int j) {
     loc_c[b + idx] -= block_start[j];
 }
 void send_submatrix(int proc, int i, int j) {
-  
+
   int loc_nnz = grid(i, j).nnz;
 
   MPI_Send(&loc_nnz, 1, MPI_INT, proc, 0, comm);
@@ -382,11 +381,11 @@ static void receive_submatrix(int i, int j) {
 }
 
 static void send_data_merge_async(int i, MPI_Request *t) {
-    MPI_Isend(grid(i, i).data, merge_size[i], MPI_DOUBLE, who[i], i, comm, t);
+  MPI_Isend(grid(i, i).data, merge_size[i], MPI_DOUBLE, who[i], i, comm, t);
 }
 static void send_data_a() {
   int cnt = 0;
-  
+
   send_order = (int *)malloc(sizeof(int) * (np * 2));
   vector<vector<int>> v;
   v.resize(np);
@@ -402,9 +401,10 @@ static void send_data_a() {
 
   for (int idx = 0; idx < num_block; idx++) {
     int i = send_order[idx];
-    
-  // for (int i = num_block; i >= 1; i--) {
-    if(who[i]) send_data_merge_async(i, request+i);
+
+    // for (int i = num_block; i >= 1; i--) {
+    if (who[i])
+      send_data_merge_async(i, request + i);
   }
 
   free(send_order);
@@ -416,18 +416,19 @@ static void send_data_a() {
   }
 
   for (int i = num_block; i >= 1; i--) {
-    if(who[i]) MPI_Wait(request+i, MPI_STATUS_IGNORE);
+    if (who[i])
+      MPI_Wait(request + i, MPI_STATUS_IGNORE);
   }
 }
 void get_data_a_async(int e) {
   MPI_Irecv(loc_val + merge_start[e], merge_size[e], MPI_DOUBLE, 0, e, comm,
-            request+e);
+            request + e);
 }
 static void get_data_a() {
   for (auto &i : my_block)
     get_data_a_async(i);
   for (auto &i : my_block) {
-    MPI_Wait(request+i, MPI_STATUS_IGNORE);
+    MPI_Wait(request + i, MPI_STATUS_IGNORE);
     set_all_LU(i);
   }
 }
@@ -436,7 +437,8 @@ static void send_data_b() {
   std::fill(_b, _b + local_b_rows, 0.0);
   for (int i = num_block; i >= 1; i--) {
     if (!who[i]) {
-      memcpy(_b + block_start[i], perm_b + old_block_start[i], block_size[i]*sizeof(double));
+      memcpy(_b + block_start[i], perm_b + old_block_start[i],
+             block_size[i] * sizeof(double));
     } else {
       MPI_Send(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i],
                0, comm);
@@ -493,7 +495,7 @@ void distribute_all() {
   if (!iam) {
     for (int i = num_block; i >= 1; i--) {
       int p = who[i];
-      if(who[i]) {
+      if (who[i]) {
         send_submatrix(p, i, i);
         for (int ii = i / 2; ii; ii /= 2) {
           send_submatrix(p, i, ii);
@@ -532,7 +534,7 @@ void distribute_all() {
   malloc_all_LU();
   malloc_all_b();
   core_preprocess();
-  
+
   clear_all_LU();
 
   if (!iam) {
@@ -542,9 +544,9 @@ void distribute_all() {
     get_data_b();
     get_data_a();
   }
-  
+
   if (offlvl >= 0 && (!(iam & 1))) {
-    max_nnz=max(max_nnz, n);
+    max_nnz = max(max_nnz, n);
     gpuErrchk(cudaMalloc((void **)&gpu_row_buf, max_nnz * sizeof(int)));
     gpuErrchk(cudaMalloc((void **)&gpu_col_buf, max_nnz * sizeof(int)));
     gpuErrchk(cudaMalloc((void **)&gpu_data_buf, max_nnz * sizeof(double)));
@@ -571,7 +573,7 @@ void return_data_b() {
 void factsolve(double *b_ret) {
 
   core_run();
-  
+
   START()
   for (int l = max_level - 1; l > max(offlvl, -1); l--) {
     for (auto &i : my_block_level[l]) {
@@ -716,8 +718,7 @@ void factsolve(double *b_ret) {
       cout << "\t" << iam << " Sparse solve 2 " << GET() << endl;
   }
 
-
-  if(!iam) {
+  if (!iam) {
     gather_data_b();
     for (int i = 0; i < n; i++)
       b_ret[i] = perm_b[order[i]];
@@ -731,12 +732,10 @@ void createHandle() {
   cusolverDnCreate(&cusolverHandle);
 }
 
-
-
 void solve(csr_matrix A_csr, double *b, double *x) {
   MPI_Comm_rank(comm, &iam);
   MPI_Comm_size(comm, &np);
-  
+
   if (!iam) {
     n = A_csr.n, nnz = A_csr.nnz;
   }
@@ -748,7 +747,7 @@ void solve(csr_matrix A_csr, double *b, double *x) {
 
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
-  
+
   call_parmetis(A_csr, sizes, order);
   construct_all(A_csr, sizes, order, b);
   distribute_all();
