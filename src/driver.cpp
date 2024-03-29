@@ -25,7 +25,7 @@ void check(csr_matrix A, double *b, double *x) {
     if (M < -sum)
       M = -sum;
   }
-  printf("max |Ax-b| = %lf\n", M);
+  printf("max |Ax-b| = %e\n", M);
 }
 
 int main(int argc, char *argv[]) {

@@ -12,11 +12,20 @@
 
 static std::chrono::time_point<std::chrono::system_clock> sss, eee;
 
-#define START1() sss = std::chrono::system_clock::now();
-#define END1() eee = std::chrono::system_clock::now();
-#define GET1()                                                                  \
+#define START_TOTAL() sss = std::chrono::system_clock::now();
+#define END_TOTAL() eee = std::chrono::system_clock::now();
+#define GET_TOTAL()                                                                  \
   (std::chrono::duration_cast<std::chrono::duration<float>>(                   \
        (eee = std::chrono::system_clock::now()) - sss)                         \
+       .count())
+
+std::chrono::time_point<std::chrono::system_clock> ss, ee;
+
+#define START_FACT() ss = std::chrono::system_clock::now();
+#define END_FACT() ee = std::chrono::system_clock::now();
+#define GET_FACT()                                                                  \
+  (std::chrono::duration_cast<std::chrono::duration<float>>(                   \
+       (ee = std::chrono::system_clock::now()) - ss)                         \
        .count())
 
 std::chrono::time_point<std::chrono::system_clock> s, e;
@@ -758,16 +767,17 @@ void solve(csr_matrix A_csr, double *b, double *x) {
   order = (int *)malloc(sizeof(int) * n);
 
           
-          MPI_Barrier(comm); START1();
+          MPI_Barrier(comm); START_TOTAL();
   call_parmetis(A_csr, sizes, order);
           //MPI_Barrier(comm); if(!iam) cout << "parmetis: " << GET1() << endl; START1();
   construct_all(A_csr, sizes, order, b);
           //MPI_Barrier(comm); if(!iam) cout << "construct: " << GET1() << endl; START1();
   distribute_all();
           //MPI_Barrier(comm); if(!iam) cout << "distribute: " << GET1() << endl; START1();
+          MPI_Barrier(comm); START_FACT();
   factsolve(x);
-          MPI_Barrier(comm); if(!iam) cout << "fact: " << GET1() << endl; START1();
-          MPI_Barrier(comm); if(!iam) cout << "total: " << GET1() << endl; START1();
+          MPI_Barrier(comm); if(!iam) cout << "Fact.+Solve: " << GET_FACT() << endl;
+          MPI_Barrier(comm); if(!iam) cout << "End-to-end: " << GET_TOTAL() << endl;
 
   free(sizes);
   free(order);
