@@ -1,4 +1,4 @@
-find_package(pybind11 REQUIRED)
+#find_package(pybind11 REQUIRED)
 
 set(MPI_ROOT $ENV{MPI_ROOT})
 #set(CMAKE_C_COMPILER "${MPI_ROOT}/bin/mpicc")
