@@ -618,7 +618,7 @@ void factsolve(double *b_ret) {
     }
   }
 
-  if ((!iam))
+  if ((!iam) && 1)
     cout << "\t" << iam << " Dense LU " << GET() << endl;
 
   START()
@@ -634,7 +634,7 @@ void factsolve(double *b_ret) {
   }
   cudaDeviceSynchronize();
 
-  if ((!iam))
+  if ((!iam) && 1)
     cout << "\t" << iam << " Memcpy " << GET() << endl;
   START()
   for (int l = min(max_level - 1, offlvl); l >= 0; l--) {
@@ -661,7 +661,7 @@ void factsolve(double *b_ret) {
       reduction_gpu(i);
     }
   }
-  if ((!iam))
+  if ((!iam) && 1)
     cout << "\t" << iam << " Dense LU gpu " << GET() << endl;
 
   START()
@@ -676,7 +676,7 @@ void factsolve(double *b_ret) {
       snusolver_trsm_Uxb_gpu(LU[{i, i}], b[i], handle);
     }
   }
-  if ((!iam))
+  if ((!iam) && 1)
     cout << "\t" << iam << " Dense solve gpu " << GET() << endl;
 
   if (offlvl >= 0 && (!(iam & 1)))
@@ -693,7 +693,7 @@ void factsolve(double *b_ret) {
       snusolver_trsm_Uxb(LU[{i, i}], b[i]);
     }
   }
-  if ((!iam))
+  if ((!iam) && 1)
     cout << "\t" << iam << " Dense solve " << GET() << endl;
 
   START() {
@@ -721,7 +721,7 @@ void factsolve(double *b_ret) {
         _b[r] -= LU_data[ptr] * _b[c];
       }
     }
-    if ((!iam))
+    if ((!iam) && 1)
       cout << "\t" << iam << " Sparse solve 1 " << GET() << endl;
 
     START()
@@ -732,7 +732,7 @@ void factsolve(double *b_ret) {
       }
       _b[r] /= LU_data[LU_diag[r]];
     }
-    if ((!iam))
+    if ((!iam) && 1)
       cout << "\t" << iam << " Sparse solve 2 " << GET() << endl;
   }
 
@@ -745,14 +745,20 @@ void factsolve(double *b_ret) {
   }
 }
 
-void createHandle() {
+void initialize() {
+  MPI_Comm_rank(comm, &iam);
+  MPI_Comm_size(comm, &np);
+
+  const int nproc_pernode = 32;
+  const int ngpu = 4;
+
+  gpuErrchk(cudaSetDevice((iam / (nproc_pernode / ngpu)) % ngpu)); 
+
   cublasCreate(&handle);
   cusolverDnCreate(&cusolverHandle);
 }
 
 void solve(csr_matrix A_csr, double *b, double *x) {
-  MPI_Comm_rank(comm, &iam);
-  MPI_Comm_size(comm, &np);
 
   if (!iam) {
     n = A_csr.n, nnz = A_csr.nnz;

@@ -1172,7 +1172,7 @@ void core_numfact_v3() {
 //   // gpuErrchk(cudaMemcpy(LU_data_gpu, LU_data, (LU_nnz) * sizeof(double),
 //   //                      cudaMemcpyHostToDevice));
 //   cudaDeviceSynchronize();
-//   if ((!iam) && 1) cout << "\t" << iam << " step0-2 " << GET() << endl;
+//   if ((!iam) && 0) cout << "\t" << iam << " step0-2 " << GET() << endl;
 //   // gpuErrchk(cudaMemcpy(LU_data_gpu, LU_data, (LU_nnz) * sizeof(double),
 //   // cudaMemcpyHostToDevice));
 
@@ -1185,7 +1185,7 @@ void core_numfact_v3() {
 //                                               leaf_size, core_n);
 //   cudaDeviceSynchronize();
 //   gpuErrchk(cudaGetLastError());
-//   if ((!iam) && 1) cout << "\t" << iam << " step0-3 " << GET() << endl;
+//   if ((!iam) && 0) cout << "\t" << iam << " step0-3 " << GET() << endl;
 // }
 void core_trsm() {
   for (int r = 0; r < leaf_size; r++) {
