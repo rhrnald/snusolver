@@ -510,8 +510,8 @@ void distribute_all() {
       }
 
       if(i==32 || i==16 || i==8 || i==4 || i==2 || i==1) {
-        // printf("%d %d %lf %lf\n", cnt, sum, cnt*1.0/sum, avg/t);
-        printf("%lf\n", avg*1.0/t);
+        printf("%lf\n", cnt*1.0/sum);
+        // printf("%lf\n", avg*1.0/t);
         cnt=0; sum=0; avg=0; t=0;
       }
     }
