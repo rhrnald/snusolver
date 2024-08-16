@@ -15,11 +15,12 @@ void check(csr_matrix A, double *b, double *x) {
   int n = A.n;
   double M = 0;
   for (int i = 0; i < n; i++) {
-    double sum = -b[i];
+    double sum = 0.0;
     for (int ptr = A.rowptr[i]; ptr < A.rowptr[i + 1]; ptr++) {
       int c = A.colidx[ptr];
       sum += A.data[ptr] * x[c];
     }
+    sum-=b[i];
     if (M < sum)
       M = sum;
     if (M < -sum)

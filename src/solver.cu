@@ -491,6 +491,33 @@ void distribute_all() {
       }
     }
 
+
+    long long sum=0;
+    long long cnt=0;
+    long long avg=0;
+    int t=0;
+    printf("%d\n", n);
+    for (int i = num_block; i >= 1; i--) {
+      sum+=(long long)block_size[i]*block_size[i];
+      avg+=block_size[i]; t++;
+      cnt+=grid(i,i).nnz;
+      // printf("%d %d %d (%d x %d)\n", i, i, grid(i, i).nnz, block_size[i], block_size[i]);
+      for (int ii = i / 2; ii; ii /= 2) {
+        sum+=(long long)block_size[i]*block_size[ii]*2;
+        cnt+=grid(i, ii).nnz+grid(ii,i).nnz;
+        // printf("%d %d %d (%d x %d)\n", i, ii, grid(i, ii).nnz, block_size[i], block_size[ii]);
+        // printf("%d %d %d (%d x %d)\n", ii, i, grid(ii, i).nnz, block_size[ii], block_size[i]);
+      }
+
+      if(i==32 || i==16 || i==8 || i==4 || i==2 || i==1) {
+        // printf("%d %d %lf %lf\n", cnt, sum, cnt*1.0/sum, avg/t);
+        printf("%lf\n", avg*1.0/t);
+        cnt=0; sum=0; avg=0; t=0;
+      }
+    }
+    fflush(stdout);
+    exit(0);
+
     MPI_Scatter(mat_pp, 1, MPI_INT, &mat_cnt, 1, MPI_INT, 0, comm);
     MPI_Scatter(nnz_pp, 1, MPI_INT, &loc_nnz, 1, MPI_INT, 0, comm);
 
