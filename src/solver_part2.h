@@ -1,3 +1,7 @@
+static long long sparse_flop_getrf=0;
+static long long sparse_flop_trsm=0;
+static long long sparse_flop_gemm=0;
+
 static void malloc_LU(int i, int j, int lvl) {
   int row = block_size[i];
   int col = block_size[j];
@@ -1045,6 +1049,7 @@ void core_numfact_v2() {
       for (int nxt_itr = nxt_ptr + 1; nxt_itr < L; nxt_itr++) {
         int nxt_c = LU_colidx[nxt_itr];
         LU_data[nxt_itr] -= dd * LU_buf[nxt_c];
+        sparse_flop_getrf+=2;
       }
     }
 
@@ -1193,6 +1198,7 @@ void core_trsm() {
     for (int ptr = LU_rowptr[r]; ptr < LU_diag[r]; ptr++) {
       int c = LU_colidx[ptr];
       tmp += LU_data[ptr] * _b[c];
+      sparse_flop_trsm+=2;
     }
     _b[r] -= tmp;
   }
@@ -1234,6 +1240,7 @@ void core_GEMM() {
         int c = LU_colidx[ptr2];
         double val2 = LU_data[ptr2];
         MM_buf[c * dense_row + bias] -= val * val2;
+        sparse_flop_gemm+=2;
       }
     }
   }
@@ -1285,14 +1292,16 @@ void core_run() {
 
   START()
   core_numfact_v2();
+  double getrf_time=GET();
   if ((!iam) && 1)
-    cout << "\t" << iam << " step1-1 (First level LU-2) : " << GET() << endl;
+    cout << "\t" << iam << " step1-1 (First level LU-2) : " << getrf_time << endl;
 
   START();
   core_trsm();
+  double trsm_time=GET();
   // core_trsm_gpu();
   if ((!iam) && 1)
-    cout << "\t" << iam << " step1-2 (First level b TRSM) : " << GET() << endl;
+    cout << "\t" << iam << " step1-2 (First level b TRSM) : " << trsm_time << endl;
 
   START();
   core_update_b();
@@ -1312,16 +1321,73 @@ void core_run() {
   // dense_row*dense_row*sizeof(double), cudaMemcpyHostToDevice));
   // core_GEMM_gpu();
   core_GEMM();
-  core_reduction();
+  double gemm_time=GET();
   if ((!iam) && 1)
-    cout << "\t" << iam << " step2-1 (First level GEMM) : " << GET() << endl;
+    cout << "\t" << iam << " step2-1 (First level GEMM) : " << gemm_time << endl;
 
   START()
+  
+  core_reduction();
   // core_update_gpu();
   core_update();
   if ((!iam) && 1)
     cout << "\t" << iam << " step2-2 (First level GEMM update) : " << GET()
          << endl;
+  MPI_Barrier(MPI_COMM_WORLD);
+
+  long long *sparse_flop_gemm_gather, *sparse_flop_getrf_gather, *sparse_flop_trsm_gather;
+  double *getrf_time_gather, *gemm_time_gather, *trsm_time_gather;
+
+  sparse_flop_gemm_gather=(long long*)malloc(sizeof(long long) * np );
+  sparse_flop_getrf_gather=(long long*)malloc(sizeof(long long) * np );
+  sparse_flop_trsm_gather=(long long*)malloc(sizeof(long long) * np );
+  gemm_time_gather=(double*)malloc(sizeof(double) * np );
+  getrf_time_gather=(double*)malloc(sizeof(double) * np );
+  trsm_time_gather=(double*)malloc(sizeof(double) * np );
+
+
+  MPI_Gather(&sparse_flop_getrf, 1, MPI_INT64_T, sparse_flop_getrf_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Gather(&sparse_flop_trsm, 1, MPI_INT64_T, sparse_flop_trsm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Gather(&sparse_flop_gemm, 1, MPI_INT64_T, sparse_flop_gemm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+
+  MPI_Gather(&getrf_time, 1, MPI_DOUBLE, getrf_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(&trsm_time, 1, MPI_DOUBLE, trsm_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(&gemm_time, 1, MPI_DOUBLE, gemm_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  
+  // double tmp=(sparse_flop_gemm+sparse_flop_getrf+sparse_flop_trsm);
+  if ((!iam) && 1) {
+      // Get the current date and time to create the file name
+      time_t now = time(NULL);
+      struct tm *t = localtime(&now);
+      char filename[100];
+      snprintf(filename, sizeof(filename), "sparse_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
+              t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+              t->tm_hour, t->tm_min, t->tm_sec);
+
+      // Open the file for writing
+      FILE *file = fopen(filename, "w");
+      if (file == NULL) {
+        perror("Unable to open file");
+      }
+
+      fprintf(file, "SGETRF\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %lf\n", sparse_flop_getrf_gather[i], getrf_time_gather[i]);
+      }
+
+      fprintf(file, "STRSM\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %lf\n", sparse_flop_trsm_gather[i], trsm_time_gather[i]);
+      }
+
+      fprintf(file, "SGEMM\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %lf\n", sparse_flop_gemm_gather[i], gemm_time_gather[i]);
+      }
+
+      // Close the file
+      fclose(file);
+  }
 
   /*
   for (int r = 0; r < leaf_size; r++) {
@@ -1363,3 +1429,5 @@ void core_run() {
   }
   */
 }
+
+

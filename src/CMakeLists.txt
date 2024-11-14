@@ -53,6 +53,7 @@ link_directories(${MPI_ROOT}/lib)
 # Setup parmetis
 set(PARMETIS_ROOT $ENV{PARMETIS_ROOT})
 include_directories(${PARMETIS_ROOT}/include)
+message("${PARMETIS_ROOT}/include")
 include_directories(${PARMETIS_ROOT}/metis/include)
 link_directories(${PARMETIS_ROOT}/build/Linux-x86_64/libparmetis)
 link_directories(${PARMETIS_ROOT}/build/Linux-x86_64/libmetis)

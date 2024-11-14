@@ -13,6 +13,9 @@
 #define MatrixMarketBanner "%%MatrixMarket"
 #define MM_MAX_TOKEN_LENGTH 64
 
+#include <stdio.h>
+#include <iostream>
+
 typedef char MM_typecode[4];
 char *mm_typecode_to_str(MM_typecode matcode);
 

@@ -2,13 +2,28 @@
 
 #include <chrono>
 #include <iostream>
+#include <vector>
+#include <tuple>
+#include <mpi.h>
+#include <fstream>
+#include <ctime>     // Include for time functions
+#include <cstdio>
 
 #include "kernel_gpu.h"
-static std::chrono::time_point<std::chrono::system_clock> start_time, end_time;
+static std::chrono::time_point<std::chrono::system_clock> s,e;
+#define START() s = std::chrono::system_clock::now();
+#define END() e = std::chrono::system_clock::now();
+#define GET()                                                                  \
+  (std::chrono::duration_cast<std::chrono::duration<double>>(                   \
+       (e = std::chrono::system_clock::now()) - s)                             \
+       .count())
 
+using namespace std;
 static double *Workspace;
 static int Lwork_size = 0;
 static const double alpha = 1.0;
+
+static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
 
 void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
   int Lwork;
@@ -22,8 +37,13 @@ void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
     gpuErrchk(cudaMalloc((void **)&Workspace, Lwork * sizeof(double)));
     Lwork_size = Lwork;
   }
+
+  START();
   cusolverDnDgetrf(cusolverHandle, n, m, A.data_gpu, m, Workspace, nullptr,
                    nullptr);
+  double time = GET();
+  static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
+  v_getrf.push_back({n,n,n,time});
 }
 void snusolver_trsm_Lxb_gpu(dense_matrix &L, dense_matrix &b,
                             cublasHandle_t handle) {
@@ -99,4 +119,93 @@ void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
   const double beta = 1.0;
   cublasDgemm(handle, trans, trans, m, n, k, &alpha, A.data_gpu, m, B.data_gpu,
               k, &beta, C.data_gpu, m);
+}
+
+void flattenData(const vector<tuple<int, int, int, double>>& data, vector<double>& flat) {
+    for (const auto& entry : data) {
+        int a, b, c;
+        double d;
+        tie(a, b, c, d) = entry;
+        flat.push_back(a);
+        flat.push_back(b);
+        flat.push_back(c);
+        flat.push_back(d);
+    }
+}
+
+// Function to gather varying data sizes and write to a file in the master process
+
+void gatherAndWriteData() {
+    int rank, size;
+    MPI_Comm comm=MPI_COMM_WORLD;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    // Local data for each process (this can be of varying sizes)
+    // Flatten local data into a simple array
+    vector<double> flatLocalData;
+    flattenData(v_getrf, flatLocalData);
+
+    // Size of local data
+    int localCount = flatLocalData.size();
+
+    // Gather the counts of data from each process
+    vector<int> recvCounts(size);
+    MPI_Gather(&localCount, 1, MPI_INT, recvCounts.data(), 1, MPI_INT, 0, comm);
+
+    // Calculate displacements for receiving data in the master node
+    vector<int> displs(size, 0);
+    if (rank == 0) {
+        for (int i = 1; i < size; ++i) {
+            displs[i] = displs[i - 1] + recvCounts[i - 1];
+        }
+    }
+
+    // Total size of gathered data on the master node
+    int totalCount = 0;
+    if (rank == 0) {
+        totalCount = displs[size - 1] + recvCounts[size - 1];
+    }
+
+    // Prepare receive buffer on the master node
+    vector<double> gatheredData;
+    if (rank == 0) {
+        gatheredData.resize(totalCount);
+    }
+
+    // Gather varying amounts of data from each process to the master node
+    MPI_Gatherv(flatLocalData.data(), localCount, MPI_DOUBLE,
+                gatheredData.data(), recvCounts.data(), displs.data(), MPI_DOUBLE,
+                0, comm);
+
+    // Master node writes gathered data to a file
+    cout << v_getrf.size() << endl;
+    if (rank == 0) {
+        // Generate the filename with timestamp
+        time_t now = time(NULL);
+        struct tm *t = localtime(&now);
+        char filename[100];
+        snprintf(filename, sizeof(filename), "dense_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
+                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+                 t->tm_hour, t->tm_min, t->tm_sec);
+
+        // Open the file with the generated filename
+        ofstream file(filename);
+        if (!file.is_open()) {
+            cerr << "Unable to open file: " << filename << endl;
+            return;
+        }
+
+        file << "Gathered Data from all nodes:\n";
+
+        // Write data in chunks based on original process
+        for (int i = 0; i < size; ++i) {
+            for (int j = 0; j < recvCounts[i]; ++j) {
+                file << gatheredData[displs[i] + j] << endl;
+            }
+        }
+
+        file.close();
+        cout << "Data written to file: " << filename << endl;
+    }
 }

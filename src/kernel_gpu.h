@@ -28,4 +28,5 @@ void snusolver_trsm_Uxb_gpu(dense_matrix &U, dense_matrix &b,
                             cublasHandle_t handle);
 void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
                         cublasHandle_t handle);
+void gatherAndWriteData();
 #endif
