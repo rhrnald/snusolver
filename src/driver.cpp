@@ -5,8 +5,6 @@
 
 static int np, iam;
 
-static MPI_Comm comm = MPI_COMM_WORLD;
-
 #include <chrono>
 
 static std::chrono::time_point<std::chrono::system_clock> sss, eee;
