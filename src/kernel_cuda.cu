@@ -37,7 +37,7 @@ using namespace std;
 static double *Workspace;
 static int Lwork_size = 0;
 static const double alpha = 1.0;
-
+static int *status;
 static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
 
 void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
@@ -47,15 +47,20 @@ void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
     return;
   cusolverDnDgetrf_bufferSize(cusolverHandle, n, m, A.data_gpu, m, &Lwork);
   if (Lwork > Lwork_size) {
-    if (!Lwork_size)
+    if (Lwork_size) {
       gpuErrchk(cudaFree(Workspace));
+    }
+    else {
+      gpuErrchk(cudaMalloc((void **)&status, sizeof(int)));
+    }
+
     gpuErrchk(cudaMalloc((void **)&Workspace, Lwork * sizeof(double)));
     Lwork_size = Lwork;
   }
 
   START();
   cusolverDnDgetrf(cusolverHandle, n, m, A.data_gpu, m, Workspace, nullptr,
-                   nullptr);
+                   status);
   double time = GET();
   static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
   v_getrf.push_back({n,n,n,time});

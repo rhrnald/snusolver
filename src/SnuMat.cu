@@ -18,6 +18,7 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 }
 
 void call_parmetis(csr_matrix A, int *sizes, int *order);
+
 void SnuMat::gather_data_b() {
   for (int i = num_block; i >= 1; i--) {
     if (!(who[i])) {
@@ -59,12 +60,10 @@ SnuMat::SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHan
   MPI_Bcast(&nnz, sizeof(int), MPI_BYTE, 0, MPI_COMM_WORLD);
   A_csr.n = n, A_csr.nnz = nnz;
 
-  int* sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
+  sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
   
-  // construct_all(A_csr, sizes, order, b);
   call_parmetis(A_csr, sizes, order);
-  make_who();
   construct_all(A_csr, sizes, order, b);
   distribute_matrix();
 }

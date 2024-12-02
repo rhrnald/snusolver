@@ -1003,8 +1003,9 @@ void SnuMat::core_run() {
   for (int i = 0; i < core_nnz; i++) {
     LU_data[core_map[i]] = loc_val[i];
   }
-
+  // for(int i=0; i<core_nnz; i++) printf("%lf ", LU_data[i]); printf("\n");
   core_numfact_v2();
+  // for(int i=0; i<core_nnz; i++) printf("%lf ", LU_data[i]); printf("\n");
   core_trsm();
   core_update_b();
   core_GEMM();

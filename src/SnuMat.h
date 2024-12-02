@@ -81,7 +81,7 @@ public:
 
   //distributed information
   int who[NP + NP];
-  int* order;
+  int* order, *sizes;
   vector<int> my_block, all_parents;
   vector<int> my_block_level[LEVEL + 1];
   int* old_block_start, *block_start, *block_size;

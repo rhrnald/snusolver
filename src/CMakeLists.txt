@@ -61,7 +61,7 @@ link_directories(${PARMETIS_ROOT}/build/Linux-x86_64/libmetis)
 #pybind11_add_module(snusolver_c snusolver_c.cpp)
 #target_link_libraries(snusolver_c PUBLIC mpi mpi_cxx)
 
-add_executable(driver driver.cpp SnuMat.cu parmetis_driver.cpp distribute.cu factorize.cu solver.cu kernel_mkl.cpp kernel_cuda.cu kernel_sparse.cu read_matrix.cpp mmio.cpp)
+add_executable(driver driver.cpp SnuMat.cu parmetis_driver.cpp SnuMat_construct.cu SnuMat_factorize.cu solver.cu kernel_mkl.cpp kernel_cuda.cu kernel_sparse.cu read_matrix.cpp mmio.cpp)
 target_link_libraries(driver parmetis metis)
 target_link_libraries(driver mpi mpi_cxx)
 target_link_libraries(driver iomp5 pthread m dl cublas cudart cuda curand cusolver nvToolsExt)
