@@ -499,23 +499,23 @@ void SnuMat::core_symbfact() {
     LU_buf_int[i] = 0;
 
   if (offlvl >= 0 && (!(iam & 1))) {
-    gpuErrchk(cudaMalloc((void **)&LU_rowptr_gpu, (core_n + 1) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_colidx_gpu, (LU_nnz) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_diag_gpu, (core_n) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_bias_gpu, (core_n) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_data_gpu, (LU_nnz) * sizeof(double)));
+    // gpuErrchk(cudaMalloc((void **)&LU_rowptr_gpu, (core_n + 1) * sizeof(int)));
+    // gpuErrchk(cudaMalloc((void **)&LU_colidx_gpu, (LU_nnz) * sizeof(int)));
+    // gpuErrchk(cudaMalloc((void **)&LU_diag_gpu, (core_n) * sizeof(int)));
+    // gpuErrchk(cudaMalloc((void **)&LU_bias_gpu, (core_n) * sizeof(int)));
+    // gpuErrchk(cudaMalloc((void **)&LU_data_gpu, (LU_nnz) * sizeof(double)));
 
     gpuErrchk(cudaMalloc((void **)&MM_buf_gpu,
                          dense_row * dense_row * sizeof(double)));
 
-    gpuErrchk(cudaMalloc((void **)&LU_buf_gpu, core_n * sizeof(double)));
+    // gpuErrchk(cudaMalloc((void **)&LU_buf_gpu, core_n * sizeof(double)));
 
-    gpuErrchk(cudaMemcpy(LU_rowptr_gpu, LU_rowptr, (core_n + 1) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_colidx_gpu, LU_colidx, (LU_nnz) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_diag_gpu, LU_diag, (core_n) * sizeof(int),
-                         cudaMemcpyHostToDevice));
+    // gpuErrchk(cudaMemcpy(LU_rowptr_gpu, LU_rowptr, (core_n + 1) * sizeof(int),
+    //                      cudaMemcpyHostToDevice));
+    // gpuErrchk(cudaMemcpy(LU_colidx_gpu, LU_colidx, (LU_nnz) * sizeof(int),
+    //                      cudaMemcpyHostToDevice));
+    // gpuErrchk(cudaMemcpy(LU_diag_gpu, LU_diag, (core_n) * sizeof(int),
+    //                      cudaMemcpyHostToDevice));
   }
 }
 
@@ -643,43 +643,43 @@ void SnuMat::core_preprocess() {
   for (int r = 0; r < leaf_size; r++)
     LU_diag_trans[r] = LU_map[LU_diag[r]];
 
-  if (offlvl >= 0 && (!(iam & 1))) {
-    gpuErrchk(cudaMalloc((void **)&L_colptr_trans_gpu,
-                         (leaf_size + 1) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&L_rowidx_trans_gpu,
-                         (L_colptr_trans[leaf_size]) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&L_trans_bt_gpu,
-                         (L_colptr_trans[leaf_size]) * sizeof(int)));
-    gpuErrchk(cudaMemcpy(L_colptr_trans_gpu, L_colptr_trans,
-                         (leaf_size + 1) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(L_rowidx_trans_gpu, L_rowidx_trans,
-                         (L_colptr_trans[leaf_size]) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(L_trans_bt_gpu, L_trans_bt,
-                         (L_colptr_trans[leaf_size]) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(
-        cudaMalloc((void **)&LU_colptr_trans_gpu, (core_n + 1) * sizeof(int)));
-    gpuErrchk(
-        cudaMalloc((void **)&LU_rowidx_trans_gpu, (LU_nnz) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_trans_map_gpu, (LU_nnz) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_map_gpu, (LU_nnz) * sizeof(int)));
-    gpuErrchk(cudaMalloc((void **)&LU_diag_trans_gpu, leaf_size * sizeof(int)));
-    gpuErrchk(cudaMemcpy(LU_colptr_trans_gpu, LU_colptr_trans,
-                         (core_n + 1) * sizeof(int), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_rowidx_trans_gpu, LU_rowidx_trans,
-                         (LU_nnz) * sizeof(int), cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_trans_map_gpu, LU_trans_map, (LU_nnz) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_map_gpu, LU_map, (LU_nnz) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-    gpuErrchk(cudaMemcpy(LU_diag_trans_gpu, LU_diag_trans,
-                         leaf_size * sizeof(int), cudaMemcpyHostToDevice));
+//   if (offlvl >= 0 && (!(iam & 1))) {
+//     gpuErrchk(cudaMalloc((void **)&L_colptr_trans_gpu,
+//                          (leaf_size + 1) * sizeof(int)));
+//     gpuErrchk(cudaMalloc((void **)&L_rowidx_trans_gpu,
+//                          (L_colptr_trans[leaf_size]) * sizeof(int)));
+//     gpuErrchk(cudaMalloc((void **)&L_trans_bt_gpu,
+//                          (L_colptr_trans[leaf_size]) * sizeof(int)));
+//     gpuErrchk(cudaMemcpy(L_colptr_trans_gpu, L_colptr_trans,
+//                          (leaf_size + 1) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(L_rowidx_trans_gpu, L_rowidx_trans,
+//                          (L_colptr_trans[leaf_size]) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(L_trans_bt_gpu, L_trans_bt,
+//                          (L_colptr_trans[leaf_size]) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//     gpuErrchk(
+//         cudaMalloc((void **)&LU_colptr_trans_gpu, (core_n + 1) * sizeof(int)));
+//     gpuErrchk(
+//         cudaMalloc((void **)&LU_rowidx_trans_gpu, (LU_nnz) * sizeof(int)));
+//     gpuErrchk(cudaMalloc((void **)&LU_trans_map_gpu, (LU_nnz) * sizeof(int)));
+//     gpuErrchk(cudaMalloc((void **)&LU_map_gpu, (LU_nnz) * sizeof(int)));
+//     gpuErrchk(cudaMalloc((void **)&LU_diag_trans_gpu, leaf_size * sizeof(int)));
+//     gpuErrchk(cudaMemcpy(LU_colptr_trans_gpu, LU_colptr_trans,
+//                          (core_n + 1) * sizeof(int), cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(LU_rowidx_trans_gpu, LU_rowidx_trans,
+//                          (LU_nnz) * sizeof(int), cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(LU_trans_map_gpu, LU_trans_map, (LU_nnz) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(LU_map_gpu, LU_map, (LU_nnz) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//     gpuErrchk(cudaMemcpy(LU_diag_trans_gpu, LU_diag_trans,
+//                          leaf_size * sizeof(int), cudaMemcpyHostToDevice));
 
-    gpuErrchk(cudaMemcpy(LU_bias_gpu, LU_bias, (core_n) * sizeof(int),
-                         cudaMemcpyHostToDevice));
-  }
+//     gpuErrchk(cudaMemcpy(LU_bias_gpu, LU_bias, (core_n) * sizeof(int),
+//                          cudaMemcpyHostToDevice));
+//   }
 }
 
 void SnuMat::core_numfact_v1() {
@@ -763,7 +763,7 @@ void SnuMat::core_numfact_v2() {
       for (int nxt_itr = nxt_ptr + 1; nxt_itr < L; nxt_itr++) {
         int nxt_c = LU_colidx[nxt_itr];
         LU_data[nxt_itr] -= dd * LU_buf[nxt_c];
-        // sparse_flop_getrf+=2;
+        sparse_flop_getrf+=2;
       }
     }
 
@@ -912,7 +912,7 @@ void SnuMat::core_trsm() {
     for (int ptr = LU_rowptr[r]; ptr < LU_diag[r]; ptr++) {
       int c = LU_colidx[ptr];
       tmp += LU_data[ptr] * _b[c];
-      // sparse_flop_trsm+=2;
+      sparse_flop_trsm+=2;
     }
     _b[r] -= tmp;
   }
@@ -954,7 +954,7 @@ void SnuMat::core_GEMM() {
         int c = LU_colidx[ptr2];
         double val2 = LU_data[ptr2];
         MM_buf[c * dense_row + bias] -= val * val2;
-        // sparse_flop_gemm+=2;
+        sparse_flop_gemm+=2;
       }
     }
   }
