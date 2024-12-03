@@ -10,6 +10,8 @@
 #include <cstdio>
 #include <cusolverDn.h>
 
+
+#include "param.h"
 #include "matrix.h"
 
 static int iam;
@@ -38,7 +40,7 @@ static double *Workspace;
 static int Lwork_size = 0;
 static const double alpha = 1.0;
 static int *status;
-static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
+static vector<tuple<long long,double>> v_getrf, v_trsm, v_gemm;
 
 void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
   int Lwork;
@@ -58,12 +60,15 @@ void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
     Lwork_size = Lwork;
   }
 
+#ifdef MEASURE_FLOPS
   START();
+#endif
   cusolverDnDgetrf(cusolverHandle, n, m, A.data_gpu, m, Workspace, nullptr,
                    status);
+#ifdef MEASURE_FLOPS
   double time = GET();
-  static vector<tuple<int,int,int,double>> v_getrf, v_trsm, v_gemm;
-  v_getrf.push_back({n,n,n,time});
+  v_getrf.push_back({1ll*n*n*n/3,time});
+#endif
 }
 void snusolver_trsm_Lxb_gpu(dense_matrix &L, dense_matrix &b,
                             cublasHandle_t handle) {
@@ -78,8 +83,15 @@ void snusolver_trsm_Lxb_gpu(dense_matrix &L, dense_matrix &b,
   cublasOperation_t trans = CUBLAS_OP_N;
   cublasDiagType_t diag = CUBLAS_DIAG_UNIT;
 
+#ifdef MEASURE_FLOPS
+  START();
+#endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, L.data_gpu, n,
               b.data_gpu, n);
+#ifdef MEASURE_FLOPS
+  double time = GET();
+  v_trsm.push_back({1ll*n*n*m/2,time});
+#endif
 }
 void snusolver_trsm_xUb_gpu(dense_matrix &U, dense_matrix &b,
                             cublasHandle_t handle) {
@@ -94,10 +106,15 @@ void snusolver_trsm_xUb_gpu(dense_matrix &U, dense_matrix &b,
   cublasOperation_t trans = CUBLAS_OP_N;
   cublasDiagType_t diag = CUBLAS_DIAG_NON_UNIT;
 
+#ifdef MEASURE_FLOPS
+  START();
+#endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, U.data_gpu, m,
               b.data_gpu, n);
-  // cublasDtrsm(handle, CUBLAS_SIDE_RIGHT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N,
-  // CUBLAS_DIAG_NON_UNIT,n,m,&alpha, U.data,m,b.data,n);
+#ifdef MEASURE_FLOPS
+  double time = GET();
+  v_trsm.push_back({1ll*n*m*m/2,time});
+#endif
 }
 
 void snusolver_trsm_Uxb_gpu(dense_matrix &U, dense_matrix &b,
@@ -112,10 +129,15 @@ void snusolver_trsm_Uxb_gpu(dense_matrix &U, dense_matrix &b,
   cublasOperation_t trans = CUBLAS_OP_N;
   cublasDiagType_t diag = CUBLAS_DIAG_NON_UNIT;
 
+#ifdef MEASURE_FLOPS
+  START();
+#endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, U.data_gpu, n,
               b.data_gpu, n);
-  // cublasDtrsm(handle, CUBLAS_SIDE_LEFT, CUBLAS_FILL_MODE_UPPER, CUBLAS_OP_N,
-  // CUBLAS_DIAG_NON_UNIT,n,m,&alpha, U.data,n,b.data,n);
+#ifdef MEASURE_FLOPS
+  double time = GET();
+  v_trsm.push_back({1ll*n*n*m/2,time});
+#endif
 }
 
 void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
@@ -137,94 +159,112 @@ void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
   cublasOperation_t trans = CUBLAS_OP_N;
   const double alpha = -1.0;
   const double beta = 1.0;
+#ifdef MEASURE_FLOPS
+  START();
+#endif
   cublasDgemm(handle, trans, trans, m, n, k, &alpha, A.data_gpu, m, B.data_gpu,
               k, &beta, C.data_gpu, m);
+#ifdef MEASURE_FLOPS
+  double time = GET();
+  v_trsm.push_back({1ll*n*m*m/2,time});
+#endif
 }
 
-void flattenData(const vector<tuple<int, int, int, double>>& data, vector<double>& flat) {
-    for (const auto& entry : data) {
-        int a, b, c;
-        double d;
-        tie(a, b, c, d) = entry;
-        flat.push_back(a);
-        flat.push_back(b);
-        flat.push_back(c);
-        flat.push_back(d);
+void flattenData(const vector<tuple<long long, double>>& tuples, vector<double>& flatData) {
+    for (const auto& t : tuples) {
+        flatData.push_back(static_cast<double>(get<0>(t))); // int -> double
+        flatData.push_back(get<1>(t)); // double 그대로
     }
 }
 
 // Function to gather varying data sizes and write to a file in the master process
 
-void gatherAndWriteData() {
+void log_gpu_flop() { 
     int rank, size;
-    MPI_Comm comm=MPI_COMM_WORLD;
+    MPI_Comm comm = MPI_COMM_WORLD;
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &size);
 
     // Local data for each process (this can be of varying sizes)
-    // Flatten local data into a simple array
+    // Flatten local data into a simple array for each vector
     vector<double> flatLocalData;
-    flattenData(v_getrf, flatLocalData);
 
-    // Size of local data
-    int localCount = flatLocalData.size();
+    // Handle GETRF, TRSM, and GEMM vectors
+    vector<vector<tuple<long long,double>>> vectors = {v_getrf, v_trsm, v_gemm};
 
-    // Gather the counts of data from each process
-    vector<int> recvCounts(size);
-    MPI_Gather(&localCount, 1, MPI_INT, recvCounts.data(), 1, MPI_INT, 0, comm);
-
-    // Calculate displacements for receiving data in the master node
-    vector<int> displs(size, 0);
-    if (rank == 0) {
-        for (int i = 1; i < size; ++i) {
-            displs[i] = displs[i - 1] + recvCounts[i - 1];
-        }
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    char filename[100];
+    snprintf(filename, sizeof(filename), "dense_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
+              t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+              t->tm_hour, t->tm_min, t->tm_sec);
+    ofstream file;
+    if(!rank) {
+      // Open the file with the generated filename
+      file.open(filename);
+      if (!file.is_open()) {
+          cerr << "Unable to open file: " << filename << endl;
+          return;
+      }
     }
+    // Gather and process each vector
+    for (int vecIndex = 0; vecIndex < vectors.size(); ++vecIndex) {
+        flattenData(vectors[vecIndex], flatLocalData);
 
-    // Total size of gathered data on the master node
-    int totalCount = 0;
-    if (rank == 0) {
-        totalCount = displs[size - 1] + recvCounts[size - 1];
-    }
+        // Size of local data
+        int localCount = flatLocalData.size();
 
-    // Prepare receive buffer on the master node
-    vector<double> gatheredData;
-    if (rank == 0) {
-        gatheredData.resize(totalCount);
-    }
+        // Gather the counts of data from each process
+        vector<int> recvCounts(size);
+        MPI_Gather(&localCount, 1, MPI_INT, recvCounts.data(), 1, MPI_INT, 0, comm);
 
-    // Gather varying amounts of data from each process to the master node
-    MPI_Gatherv(flatLocalData.data(), localCount, MPI_DOUBLE,
-                gatheredData.data(), recvCounts.data(), displs.data(), MPI_DOUBLE,
-                0, comm);
-
-    // Master node writes gathered data to a file
-    if (rank == 0) {
-        // Generate the filename with timestamp
-        time_t now = time(NULL);
-        struct tm *t = localtime(&now);
-        char filename[100];
-        snprintf(filename, sizeof(filename), "dense_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
-                 t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-                 t->tm_hour, t->tm_min, t->tm_sec);
-
-        // Open the file with the generated filename
-        ofstream file(filename);
-        if (!file.is_open()) {
-            cerr << "Unable to open file: " << filename << endl;
-            return;
-        }
-
-        file << "Gathered Data from all nodes:\n";
-
-        // Write data in chunks based on original process
-        for (int i = 0; i < size; ++i) {
-            for (int j = 0; j < recvCounts[i]; ++j) {
-                file << gatheredData[displs[i] + j] << endl;
+        // Calculate displacements for receiving data in the master node
+        vector<int> displs(size, 0);
+        if (rank == 0) {
+            for (int i = 1; i < size; ++i) {
+                displs[i] = displs[i - 1] + recvCounts[i - 1];
             }
         }
 
-        file.close();
-        cout << "Data written to file: " << filename << endl;
+        // Total size of gathered data on the master node
+        int totalCount = 0;
+        if (rank == 0) {
+            totalCount = displs[size - 1] + recvCounts[size - 1];
+        }
+
+        // Prepare receive buffer on the master node
+        vector<double> gatheredData;
+        if (rank == 0) {
+            gatheredData.resize(totalCount);
+        }
+
+        // Gather varying amounts of data from each process to the master node
+        MPI_Gatherv(flatLocalData.data(), localCount, MPI_DOUBLE,
+                    gatheredData.data(), recvCounts.data(), displs.data(), MPI_DOUBLE,
+                    0, comm);
+
+        // Master node writes gathered data to a file
+        if (rank == 0) {
+            // Generate the filename with timestamp
+            
+
+            // Print label for each vector (GETRF, TRSM, GEMM)
+            if (vecIndex == 0) file << "GETRF" << endl;
+            else if (vecIndex == 1) file << "TRSM" << endl;
+            else if (vecIndex == 2) file << "GEMM" << endl;
+
+            // Write data in chunks based on original process
+            for (size_t i = 0; i < gatheredData.size(); i += 2) {
+                if (i + 3 < gatheredData.size()) {
+                    file << " " << static_cast<long long>(gatheredData[i]) << " "
+                         << gatheredData[i + 1] << endl; // Write each entry on a new line
+                }
+            }
+
+        }
     }
+  if(!rank) {
+    file.close();
+    cout << "Data written to file: " << filename << endl;
+  }
 }

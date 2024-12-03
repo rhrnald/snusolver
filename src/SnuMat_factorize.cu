@@ -210,7 +210,13 @@ void SnuMat::b_tocpu() {
                        cudaMemcpyDeviceToHost));
 }
 void SnuMat::solve(double *x) {
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_START("Sparse start");
   core_run();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Sparse end");
+
+  if(!iam) TIMER_START("Dense start");
   for (int l = max_level - 1; l > max(offlvl, -1); l--) {
     for (auto &i : my_block_level[l]) {
       snusolver_LU(LU[{i, i}]);
@@ -336,6 +342,9 @@ void SnuMat::solve(double *x) {
       _b[r] /= LU_data[LU_diag[r]];
     }
   }
+
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Dense end");
 
   if (!iam) {
     gather_data_b();

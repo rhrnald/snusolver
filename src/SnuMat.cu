@@ -82,24 +82,33 @@ SnuMat::SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHan
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
 
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if(!iam) TIMER_START("Preporcess start");
+#ifdef MEASURE_TIME
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_START("Preporcess start");
+#endif
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // if(!iam) TIMER_START("Parmetis start");
+
+#ifdef MEASURE_TIME
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(!iam) TIMER_START("Parmetis start");
+#endif
 
     call_parmetis(A_csr, sizes, order);
 
-    // MPI_Barrier(MPI_COMM_WORLD);
-    // if(!iam) TIMER_END("Parmetis done");
+#ifdef MEASURE_TIME
+    MPI_Barrier(MPI_COMM_WORLD);
+    if(!iam) TIMER_END("Parmetis done");
+#endif
 
     construct_structure(A_csr, sizes, order, b);
     distribute_structure();
     malloc_matrix();
     distribute_data();
 
-  // MPI_Barrier(MPI_COMM_WORLD);
-  // if(!iam) TIMER_END("Preprocess done");
+#ifdef MEASURE_TIME
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Preprocess done");
+#endif
 }
 
 void dense_matrix::toCPU() {

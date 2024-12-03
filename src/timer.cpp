@@ -2,7 +2,10 @@
 #include <iostream>
 #include <vector>
 #include <string>
-  
+
+#include "param.h"
+
+#ifdef MEASURE_TIME
 static std::vector<std::chrono::time_point<std::chrono::system_clock>> s;
 
 void TIMER_PUSH() {
@@ -35,3 +38,10 @@ void TIMER_END(const char* label) {
     }
     std::cout << label << " : " << TIMER_POP() << " seconds" << std::endl;
 }
+#else
+void TIMER_PUSH(){}
+float TIMER_POP(){return 0;}
+
+void TIMER_START(const char* label){}
+void TIMER_END(const char* label){}
+#endif

@@ -763,7 +763,9 @@ void SnuMat::core_numfact_v2() {
       for (int nxt_itr = nxt_ptr + 1; nxt_itr < L; nxt_itr++) {
         int nxt_c = LU_colidx[nxt_itr];
         LU_data[nxt_itr] -= dd * LU_buf[nxt_c];
+#ifdef MEASURE_FLOPS
         sparse_flop_getrf+=2;
+#endif
       }
     }
 
@@ -912,7 +914,9 @@ void SnuMat::core_trsm() {
     for (int ptr = LU_rowptr[r]; ptr < LU_diag[r]; ptr++) {
       int c = LU_colidx[ptr];
       tmp += LU_data[ptr] * _b[c];
+#ifdef MEASURE_FLOPS
       sparse_flop_trsm+=2;
+#endif
     }
     _b[r] -= tmp;
   }
@@ -954,7 +958,9 @@ void SnuMat::core_GEMM() {
         int c = LU_colidx[ptr2];
         double val2 = LU_data[ptr2];
         MM_buf[c * dense_row + bias] -= val * val2;
+#ifdef MEASURE_FLOPS
         sparse_flop_gemm+=2;
+#endif
       }
     }
   }
@@ -996,72 +1002,88 @@ void SnuMat::core_update() {
 //     }
 //   }
 // }
+
+static float getrf_time, gemm_time, trsm_time;
 void SnuMat::core_run() {
-  int numThreadsPerBlock, numBlocks;
   for (int i = 0; i < LU_nnz; i++)
     LU_data[i] = 0;
   for (int i = 0; i < core_nnz; i++) {
     LU_data[core_map[i]] = loc_val[i];
   }
 
+  TIMER_PUSH();
   core_numfact_v2();
+  getrf_time=TIMER_POP();
+
+  TIMER_PUSH();
   core_trsm();
+  trsm_time=TIMER_POP();
+
   core_update_b();
+
+  TIMER_PUSH();
   core_GEMM();
+  gemm_time=TIMER_POP();
+
+
   core_reduction();
   core_update();
 
   MPI_Barrier(MPI_COMM_WORLD);
+}
 
-  // long long *sparse_flop_gemm_gather, *sparse_flop_getrf_gather, *sparse_flop_trsm_gather;
-  // double *getrf_time_gather, *gemm_time_gather, *trsm_time_gather;
+void log_sparse_flop() {
+  int iam, np;
+  MPI_Comm_size(MPI_COMM_WORLD, &np);
+  MPI_Comm_rank(MPI_COMM_WORLD, &iam);
+  long long *sparse_flop_gemm_gather, *sparse_flop_getrf_gather, *sparse_flop_trsm_gather;
+  float *getrf_time_gather, *gemm_time_gather, *trsm_time_gather;
 
-  // sparse_flop_gemm_gather=(long long*)malloc(sizeof(long long) * np );
-  // sparse_flop_getrf_gather=(long long*)malloc(sizeof(long long) * np );
-  // sparse_flop_trsm_gather=(long long*)malloc(sizeof(long long) * np );
-  // gemm_time_gather=(double*)malloc(sizeof(double) * np );
-  // getrf_time_gather=(double*)malloc(sizeof(double) * np );
-  // trsm_time_gather=(double*)malloc(sizeof(double) * np );
+  sparse_flop_gemm_gather=(long long*)malloc(sizeof(long long) * np );
+  sparse_flop_getrf_gather=(long long*)malloc(sizeof(long long) * np );
+  sparse_flop_trsm_gather=(long long*)malloc(sizeof(long long) * np );
+  gemm_time_gather=(float*)malloc(sizeof(float) * np );
+  getrf_time_gather=(float*)malloc(sizeof(float) * np );
+  trsm_time_gather=(float*)malloc(sizeof(float) * np );
 
 
-  // MPI_Gather(&sparse_flop_getrf, 1, MPI_INT64_T, sparse_flop_getrf_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
-  // MPI_Gather(&sparse_flop_trsm, 1, MPI_INT64_T, sparse_flop_trsm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
-  // MPI_Gather(&sparse_flop_gemm, 1, MPI_INT64_T, sparse_flop_gemm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Gather(&sparse_flop_getrf, 1, MPI_INT64_T, sparse_flop_getrf_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Gather(&sparse_flop_trsm, 1, MPI_INT64_T, sparse_flop_trsm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
+  MPI_Gather(&sparse_flop_gemm, 1, MPI_INT64_T, sparse_flop_gemm_gather, 1, MPI_INT64_T, 0, MPI_COMM_WORLD);
 
-  // MPI_Gather(&getrf_time, 1, MPI_DOUBLE, getrf_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  // MPI_Gather(&trsm_time, 1, MPI_DOUBLE, trsm_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  // MPI_Gather(&gemm_time, 1, MPI_DOUBLE, gemm_time_gather, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Gather(&getrf_time, 1, MPI_FLOAT, getrf_time_gather, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Gather(&trsm_time, 1, MPI_FLOAT, trsm_time_gather, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
+  MPI_Gather(&gemm_time, 1, MPI_FLOAT, gemm_time_gather, 1, MPI_FLOAT, 0, MPI_COMM_WORLD);
   
-  // if ((!iam) && 1) {
-  //     time_t now = time(NULL);
-  //     struct tm *t = localtime(&now);
-  //     char filename[100];
-  //     snprintf(filename, sizeof(filename), "sparse_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
-  //             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-  //             t->tm_hour, t->tm_min, t->tm_sec);
+  if ((!iam)) {
+      time_t now = time(NULL);
+      struct tm *t = localtime(&now);
+      char filename[100];
+      snprintf(filename, sizeof(filename), "sparse_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
+              t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+              t->tm_hour, t->tm_min, t->tm_sec);
 
-  //     FILE *file = fopen(filename, "w");
-  //     if (file == NULL) {
-  //       perror("Unable to open file");
-  //     }
+      FILE *file = fopen(filename, "w");
+      if (file == NULL) {
+        perror("Unable to open file");
+      }
 
-  //     fprintf(file, "SGETRF\n");
-  //     for (int i = 0; i < np; i++) {
-  //         fprintf(file, " %d %lf\n", sparse_flop_getrf_gather[i], getrf_time_gather[i]);
-  //     }
+      fprintf(file, "SGETRF\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %f\n", sparse_flop_getrf_gather[i], getrf_time_gather[i]);
+      }
 
-  //     fprintf(file, "STRSM\n");
-  //     for (int i = 0; i < np; i++) {
-  //         fprintf(file, " %d %lf\n", sparse_flop_trsm_gather[i], trsm_time_gather[i]);
-  //     }
+      fprintf(file, "STRSM\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %f\n", sparse_flop_trsm_gather[i], trsm_time_gather[i]);
+      }
 
-  //     fprintf(file, "SGEMM\n");
-  //     for (int i = 0; i < np; i++) {
-  //         fprintf(file, " %d %lf\n", sparse_flop_gemm_gather[i], gemm_time_gather[i]);
-  //     }
-
-  //     fclose(file);
-  // }
+      fprintf(file, "SGEMM\n");
+      for (int i = 0; i < np; i++) {
+          fprintf(file, " %d %f\n", sparse_flop_gemm_gather[i], gemm_time_gather[i]);
+      }
+      fclose(file);
+  }
 }
 
 

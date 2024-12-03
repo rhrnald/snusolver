@@ -49,19 +49,40 @@ void initialize() {
 }
 
 void solve(csr_matrix A_csr, double *b, double *x) {
+
+#ifdef MEASURE_TIME
   MPI_Barrier(MPI_COMM_WORLD);
   if(!iam) TIMER_START("Total start");
+#endif
 
+#ifdef MEASURE_TIME
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_START("Construct start");
+#endif
   SnuMat Ab(A_csr, b, handle, cusolverHandle);
-  
+#ifdef MEASURE_TIME
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Construct end");
+#endif  
+
+#ifdef MEASURE_TIME
   MPI_Barrier(MPI_COMM_WORLD);
   if(!iam) TIMER_START("Factsolve start");
+#endif
   Ab.solve(x);
+#ifdef MEASURE_TIME
   MPI_Barrier(MPI_COMM_WORLD);
   if(!iam) TIMER_END("Factsolve end");
+#endif
 
+#ifdef MEASURE_TIME
   MPI_Barrier(MPI_COMM_WORLD);
   if(!iam) TIMER_END("Total end");
+#endif
 
-  gatherAndWriteData();
+#ifdef MEASURE_FLOPS
+  log_sparse_flop();
+  log_gpu_flop();
+#endif
+
 }
