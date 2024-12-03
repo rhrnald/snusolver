@@ -763,7 +763,7 @@ void SnuMat::core_numfact_v2() {
       for (int nxt_itr = nxt_ptr + 1; nxt_itr < L; nxt_itr++) {
         int nxt_c = LU_colidx[nxt_itr];
         LU_data[nxt_itr] -= dd * LU_buf[nxt_c];
-        sparse_flop_getrf+=2;
+        // sparse_flop_getrf+=2;
       }
     }
 
@@ -912,7 +912,7 @@ void SnuMat::core_trsm() {
     for (int ptr = LU_rowptr[r]; ptr < LU_diag[r]; ptr++) {
       int c = LU_colidx[ptr];
       tmp += LU_data[ptr] * _b[c];
-      sparse_flop_trsm+=2;
+      // sparse_flop_trsm+=2;
     }
     _b[r] -= tmp;
   }
@@ -954,7 +954,7 @@ void SnuMat::core_GEMM() {
         int c = LU_colidx[ptr2];
         double val2 = LU_data[ptr2];
         MM_buf[c * dense_row + bias] -= val * val2;
-        sparse_flop_gemm+=2;
+        // sparse_flop_gemm+=2;
       }
     }
   }
@@ -1003,9 +1003,8 @@ void SnuMat::core_run() {
   for (int i = 0; i < core_nnz; i++) {
     LU_data[core_map[i]] = loc_val[i];
   }
-  // for(int i=0; i<core_nnz; i++) printf("%lf ", LU_data[i]); printf("\n");
+
   core_numfact_v2();
-  // for(int i=0; i<core_nnz; i++) printf("%lf ", LU_data[i]); printf("\n");
   core_trsm();
   core_update_b();
   core_GEMM();

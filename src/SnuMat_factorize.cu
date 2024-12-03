@@ -184,7 +184,31 @@ void SnuMat::scatter_b_gpu(int block_num) { // Todo change to MPI_REDUCE & non b
     // cnt); cudaDeviceSynchronize();
   }
 }
+void SnuMat::gather_data_b() {
+  for (int i = num_block; i >= 1; i--) {
+    if (!(who[i])) {
+      memcpy(perm_b + old_block_start[i], b[i].data,
+             block_size[i] * sizeof(double));
+    } else {
+      MPI_Recv(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i],
+              0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    }
+  }
+}
 
+void SnuMat::return_data_b() {
+  for (auto &i : my_block) {
+    MPI_Send(b[i].data, b[i].n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+  }
+}
+void SnuMat::b_togpu() {
+  gpuErrchk(cudaMemcpy(this->_b_gpu, this->_b, this->local_b_rows * sizeof(double),
+                       cudaMemcpyHostToDevice));
+}
+void SnuMat::b_tocpu() {
+  gpuErrchk(cudaMemcpy(this->_b, this->_b_gpu, this->local_b_rows * sizeof(double),
+                       cudaMemcpyDeviceToHost));
+}
 void SnuMat::solve(double *x) {
   core_run();
   for (int l = max_level - 1; l > max(offlvl, -1); l--) {
@@ -212,8 +236,6 @@ void SnuMat::solve(double *x) {
     }
   }  
   
-  cudaDeviceSynchronize();
-  gpuErrchk(cudaGetLastError());
   // printf("%d: ", iam); for(int i=0; i<local_b_rows; i++) printf("%lf ", _b[i]); printf("\n");
   if (offlvl >= 0 && (!(iam & 1))) {
     b_togpu();
@@ -225,8 +247,6 @@ void SnuMat::solve(double *x) {
       }
     }
   }  
-  cudaDeviceSynchronize();
-  gpuErrchk(cudaGetLastError());
 
   for (int l = min(max_level - 1, offlvl); l >= 0; l--) {
     for (auto &i : my_block_level[l]) {

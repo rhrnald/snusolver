@@ -9,6 +9,7 @@
 #include <cusolverDn.h>
 #include "mpi.h"
 
+#include "timer.h"
 #include "param.h"
 #include "matrix.h"
 using namespace std;
@@ -140,8 +141,10 @@ public:
   void scatter_b_gpu(int block_num);
 
   //main procedure
-  void construct_all(csr_matrix A_csr, int *sizes, int *order, double *b);
-  void distribute_matrix();
+  void construct_structure(csr_matrix A_csr, int *sizes, int *order, double *b);
+  void distribute_structure();
+  void malloc_matrix();
+  void distribute_data();
   
   SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHandle_t cusolverHandle);
   void solve(double *x);

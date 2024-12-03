@@ -50,11 +50,18 @@ void initialize() {
 
 void solve(csr_matrix A_csr, double *b, double *x) {
   MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_START("Total start");
 
   SnuMat Ab(A_csr, b, handle, cusolverHandle);
   
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_START("Factsolve start");
   Ab.solve(x);
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Factsolve end");
 
   MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("Total end");
+
   gatherAndWriteData();
 }

@@ -19,30 +19,49 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
 
 void call_parmetis(csr_matrix A, int *sizes, int *order);
 
-void SnuMat::gather_data_b() {
-  for (int i = num_block; i >= 1; i--) {
-    if (!(who[i])) {
-      memcpy(perm_b + old_block_start[i], b[i].data,
-             block_size[i] * sizeof(double));
-    } else {
-      MPI_Recv(perm_b + old_block_start[i], block_size[i], MPI_DOUBLE, who[i],
-              0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    }
-  }
+
+
+int SnuMat::_who(int block) {
+  while (block >= np + np)
+    block /= 2;
+  while (block < np)
+    block = block + block + 1;
+  return np + np - block - 1;
 }
 
-void SnuMat::return_data_b() {
-  for (auto &i : my_block) {
-    MPI_Send(b[i].data, b[i].n, MPI_DOUBLE, 0, 0, MPI_COMM_WORLD);
+
+void SnuMat::make_who() {
+  max_level=0;
+  for (int i = np; i > 1; i /= 2)
+    max_level++;
+
+  vector<int> level(np+np, 0);
+
+  for (int i = 1; i <= num_block; i++)
+    who[i] = _who(i);
+  for (int i = num_block; i >= 1; i--)
+    if (who[i] == iam)
+      my_block.push_back(i);
+  for (int e = 1; e <= num_block; e++) {
+    for (int i = e; i > 1; i /= 2)
+      level[e]++;
   }
-}
-void SnuMat::b_togpu() {
-  gpuErrchk(cudaMemcpy(this->_b_gpu, this->_b, this->local_b_rows * sizeof(double),
-                       cudaMemcpyHostToDevice));
-}
-void SnuMat::b_tocpu() {
-  gpuErrchk(cudaMemcpy(this->_b, this->_b_gpu, this->local_b_rows * sizeof(double),
-                       cudaMemcpyDeviceToHost));
+  for (auto &e : my_block) {
+    my_block_level[level[e]].push_back(e);
+  }
+
+  vector<int> vst(num_block + 1, 0);
+  for (int i = 1; i <= num_block; i++) {
+    if (who[i] == iam) {
+      for (int j = i; j >= 1; j /= 2)
+        vst[j] = 1;
+    }
+  }
+
+  for (int i = num_block; i >= 1; i--)
+    if (vst[i]) {
+      all_parents.push_back(i);
+    }
 }
 
 SnuMat::SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHandle_t cusolverHandle) {
@@ -62,10 +81,25 @@ SnuMat::SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHan
 
   sizes = (int *)malloc(sizeof(int) * (np * 2 - 1));
   order = (int *)malloc(sizeof(int) * n);
-  
-  call_parmetis(A_csr, sizes, order);
-  construct_all(A_csr, sizes, order, b);
-  distribute_matrix();
+
+  // MPI_Barrier(MPI_COMM_WORLD);
+  // if(!iam) TIMER_START("Preporcess start");
+
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // if(!iam) TIMER_START("Parmetis start");
+
+    call_parmetis(A_csr, sizes, order);
+
+    // MPI_Barrier(MPI_COMM_WORLD);
+    // if(!iam) TIMER_END("Parmetis done");
+
+    construct_structure(A_csr, sizes, order, b);
+    distribute_structure();
+    malloc_matrix();
+    distribute_data();
+
+  // MPI_Barrier(MPI_COMM_WORLD);
+  // if(!iam) TIMER_END("Preprocess done");
 }
 
 void dense_matrix::toCPU() {
