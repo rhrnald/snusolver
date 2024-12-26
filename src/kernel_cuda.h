@@ -19,4 +19,5 @@ void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
                         cublasHandle_t handle);
 void log_gpu_flop();
 void log_sparse_flop();
+void log_mkl_flop();
 #endif

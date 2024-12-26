@@ -39,13 +39,13 @@ void initialize() {
   char *local_size_env = getenv("OMPI_COMM_WORLD_LOCAL_SIZE");
   int nproc_pernode = local_size_env ? atoi(local_size_env) : -1;
   int ngpu = 4;
-  gpuErrchk(cudaGetDeviceCount(&ngpu));
 
-
-  gpuErrchk(cudaSetDevice((iam % nproc_pernode) / (nproc_pernode / ngpu)));  //nproc_pernode must be multiple of ngpu
-
-  cublasCreate(&handle);
-  cusolverDnCreate(&cusolverHandle);
+  if(offlvl>=0) {
+    gpuErrchk(cudaGetDeviceCount(&ngpu));
+    gpuErrchk(cudaSetDevice((iam % nproc_pernode) / (nproc_pernode / ngpu)));  //nproc_pernode must be multiple of ngpu
+    cublasCreate(&handle);
+    cusolverDnCreate(&cusolverHandle);
+  }
 }
 
 void solve(csr_matrix A_csr, double *b, double *x) {
@@ -83,6 +83,7 @@ void solve(csr_matrix A_csr, double *b, double *x) {
 #ifdef MEASURE_FLOPS
   log_sparse_flop();
   log_gpu_flop();
+  log_mkl_flop();
 #endif
 
 }

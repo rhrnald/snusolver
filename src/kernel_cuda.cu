@@ -62,6 +62,7 @@ void snusolver_LU_gpu(dense_matrix &A, cusolverDnHandle_t cusolverHandle) {
 
 #ifdef MEASURE_FLOPS
   START();
+  cudaDeviceSynchronize();
 #endif
   cusolverDnDgetrf(cusolverHandle, n, m, A.data_gpu, m, Workspace, nullptr,
                    status);
@@ -84,6 +85,7 @@ void snusolver_trsm_Lxb_gpu(dense_matrix &L, dense_matrix &b,
   cublasDiagType_t diag = CUBLAS_DIAG_UNIT;
 
 #ifdef MEASURE_FLOPS
+  cudaDeviceSynchronize();
   START();
 #endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, L.data_gpu, n,
@@ -107,6 +109,7 @@ void snusolver_trsm_xUb_gpu(dense_matrix &U, dense_matrix &b,
   cublasDiagType_t diag = CUBLAS_DIAG_NON_UNIT;
 
 #ifdef MEASURE_FLOPS
+  cudaDeviceSynchronize();
   START();
 #endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, U.data_gpu, m,
@@ -130,6 +133,7 @@ void snusolver_trsm_Uxb_gpu(dense_matrix &U, dense_matrix &b,
   cublasDiagType_t diag = CUBLAS_DIAG_NON_UNIT;
 
 #ifdef MEASURE_FLOPS
+  cudaDeviceSynchronize();
   START();
 #endif
   cublasDtrsm(handle, side, uplo, trans, diag, n, m, &alpha, U.data_gpu, n,
@@ -160,13 +164,14 @@ void snusolver_gemm_gpu(dense_matrix &A, dense_matrix &B, dense_matrix &C,
   const double alpha = -1.0;
   const double beta = 1.0;
 #ifdef MEASURE_FLOPS
+  cudaDeviceSynchronize();
   START();
 #endif
   cublasDgemm(handle, trans, trans, m, n, k, &alpha, A.data_gpu, m, B.data_gpu,
               k, &beta, C.data_gpu, m);
 #ifdef MEASURE_FLOPS
   double time = GET();
-  v_trsm.push_back({1ll*n*m*m/2,time});
+  v_gemm.push_back({1ll*n*m*k*2,time});
 #endif
 }
 
@@ -187,7 +192,6 @@ void log_gpu_flop() {
 
     // Local data for each process (this can be of varying sizes)
     // Flatten local data into a simple array for each vector
-    vector<double> flatLocalData;
 
     // Handle GETRF, TRSM, and GEMM vectors
     vector<vector<tuple<long long,double>>> vectors = {v_getrf, v_trsm, v_gemm};
@@ -195,7 +199,7 @@ void log_gpu_flop() {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char filename[100];
-    snprintf(filename, sizeof(filename), "dense_log_%04d-%02d-%02d_%02d-%02d-%02d.txt",
+    snprintf(filename, sizeof(filename), "log_cuda_%04d-%02d-%02d_%02d-%02d-%02d.txt",
               t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
               t->tm_hour, t->tm_min, t->tm_sec);
     ofstream file;
@@ -209,6 +213,7 @@ void log_gpu_flop() {
     }
     // Gather and process each vector
     for (int vecIndex = 0; vecIndex < vectors.size(); ++vecIndex) {
+        vector<double> flatLocalData;
         flattenData(vectors[vecIndex], flatLocalData);
 
         // Size of local data

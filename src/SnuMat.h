@@ -16,12 +16,25 @@ using namespace std;
 
 class SnuMat {
 public:
-  //namespace basic
+  //basic
   int np, iam;
   cublasHandle_t handle;
   cusolverDnHandle_t cusolverHandle;
+  int _who(int block);
+  void make_who();
 
-  //namespace Distribute
+
+  //matrix info
+  int n, nnz;
+  int num_block, max_level;
+
+  //distribute
+  int who[NP + NP];
+  int* order, *sizes;
+  vector<int> my_block, all_parents;
+  vector<int> my_block_level[LEVEL + 1];
+  int* old_block_start, *block_start, *block_size;
+  map<pair<int, int>, dense_matrix> LU;
   MPI_Request *request;
   int level[NP + NP];
   int *coo_r, *coo_c;
@@ -76,19 +89,7 @@ public:
   void free_all_b();
   void clear_all_LU();
   
-  //matrix info
-  int n, nnz;
-  int num_block, max_level;
 
-  //distributed information
-  int who[NP + NP];
-  int* order, *sizes;
-  vector<int> my_block, all_parents;
-  vector<int> my_block_level[LEVEL + 1];
-  int* old_block_start, *block_start, *block_size;
-
-  //dense
-  map<pair<int, int>, dense_matrix> LU;
 
   //sparse
   int LU_nnz, core_nnz, core_n, core_m;
@@ -122,15 +123,9 @@ public:
   void core_GEMM();
   void core_update();
 
-  //
-  int _who(int block);
-  void make_who();
-  void gather_data_b();
-  void return_data_b();
-
-  //sparse
   void core_run();
   void core_preprocess();
+
 
   //solve
   void b_togpu();
@@ -139,14 +134,15 @@ public:
   void reduction_gpu(int block_num);
   void scatter_b(int block_num);
   void scatter_b_gpu(int block_num);
+  void gather_data_b();
+  void return_data_b();
 
   //main procedure
+  SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHandle_t cusolverHandle);
   void construct_structure(csr_matrix A_csr, int *sizes, int *order, double *b);
   void distribute_structure();
   void malloc_matrix();
   void distribute_data();
-  
-  SnuMat(csr_matrix A_csr, double *b, cublasHandle_t handle, cusolverDnHandle_t cusolverHandle);
   void solve(double *x);
 };
 #endif
