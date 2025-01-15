@@ -492,11 +492,15 @@ void SnuMat::core_symbfact() {
   MM_buf = (double *)malloc(sizeof(double) * dense_row * dense_row);
   MM_buf2 = (double *)malloc(sizeof(double) * dense_row * dense_row);
   LU_buf = (double *)malloc(sizeof(double) * core_n);
+  // gpuErrchk(cudaHostAlloc((void**)&LU_data, sizeof(double) * LU_nnz, cudaHostAllocDefault));
+  // gpuErrchk(cudaHostAlloc((void**)&MM_buf, sizeof(double) * dense_row * dense_row, cudaHostAllocDefault));
+  // gpuErrchk(cudaHostAlloc((void**)&MM_buf2, sizeof(double) * dense_row * dense_row, cudaHostAllocDefault));
+  // gpuErrchk(cudaHostAlloc((void**)&LU_buf, sizeof(double) * core_n, cudaHostAllocDefault));
   for (int i = 0; i < core_n; i++)
     LU_buf[i] = 0;
-  LU_buf_int = (int *)malloc(sizeof(int) * core_n);
-  for (int i = 0; i < core_n; i++)
-    LU_buf_int[i] = 0;
+  // LU_buf_int = (int *)malloc(sizeof(int) * core_n);
+  // for (int i = 0; i < core_n; i++)
+  //   LU_buf_int[i] = 0;
 
   if (offlvl >= 0 && (!(iam & 1))) {
     // gpuErrchk(cudaMalloc((void **)&LU_rowptr_gpu, (core_n + 1) * sizeof(int)));

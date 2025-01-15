@@ -122,7 +122,7 @@ void log_mkl_flop() {
           sum+=get<1>(f);
         }
       }
-      printf("process %d computation time : %lf\n", rank, sum);
+      // printf("process %d computation time : %lf\n", rank, sum);
     }
     time_t now = time(NULL);
     struct tm *t = localtime(&now);

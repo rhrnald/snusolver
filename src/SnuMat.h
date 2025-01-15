@@ -80,7 +80,8 @@ public:
   void get_data_a();
   void send_data_b();
   void get_data_b();
-  void malloc_LU(int i, int j, int lvl);
+  // void malloc_LU(int i, int j, int lvl);
+  void malloc_LU(int i, int j, int lvl, double *data, double *data_gpu);
   void free_LU(int i, int j, int lvl);
   void clear_LU(int i, int j);
   void malloc_all_LU();

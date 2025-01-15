@@ -16,18 +16,22 @@ inline void gpuAssert(cudaError_t code, const char *file, int line,
   }
 }
 
-void SnuMat::malloc_LU(int i, int j, int lvl) {
+
+void SnuMat::malloc_LU(int i, int j, int lvl, double *data, double *data_gpu) {
   int row = block_size[i];
   int col = block_size[j];
 
-  double *data, *data_gpu = nullptr;
-  data = (double *)malloc(row * col * sizeof(double));
+  static int malloc_LU_bias=0;
+  // double *data, *data_gpu = nullptr;
+  // data = (double *)malloc(row * col * sizeof(double));
+  // gpuErrchk(cudaHostAlloc((void**)&data, row * col * sizeof(double), cudaHostAllocDefault));
   if (lvl <= offlvl && (!(iam & 1))) {
-    gpuErrchk(cudaMalloc((void **)&data_gpu, row * col * sizeof(double)));
-    LU[{i, j}] = {row, col, data, data_gpu, 1};
+    // gpuErrchk(cudaMalloc((void **)&data_gpu, row * col * sizeof(double)));
+    LU[{i, j}] = {row, col, data+malloc_LU_bias, data_gpu+malloc_LU_bias, 1};
   } else {
-    LU[{i, j}] = {row, col, data, data_gpu, 0};
+    LU[{i, j}] = {row, col, data+malloc_LU_bias, data_gpu+malloc_LU_bias, 0};
   }  
+  malloc_LU_bias+=row*col;
 }
 void SnuMat::free_LU(int i, int j, int lvl) {
   free(LU[{i, j}].data);
@@ -55,14 +59,23 @@ __global__ void copySparseToDense(const int *row, const int *col,
 }
 
 void SnuMat::malloc_all_LU() {
+  
+  double *data, *data_gpu = nullptr;
+  if (offlvl>=0 && (!(iam & 1))) {
+    gpuErrchk(cudaMalloc((void **)&data_gpu, dense_row*dense_row * sizeof(double)));
+    gpuErrchk(cudaHostAlloc((void**)&data, dense_row*dense_row * sizeof(double), cudaHostAllocDefault));
+  } else {
+    data = (double *)malloc(dense_row*dense_row * sizeof(double));
+  }
+
   for (auto &i : (all_parents)) {
     if (i >= np)
       continue;
     int lvl = level[i];
-    malloc_LU(i, i, lvl);
+    malloc_LU(i, i, lvl, data, data_gpu);
     for (int j = i / 2; j >= 1; j /= 2) {
-      malloc_LU(i, j, lvl);
-      malloc_LU(j, i, lvl);
+      malloc_LU(i, j, lvl, data, data_gpu);
+      malloc_LU(j, i, lvl, data, data_gpu);
     }
   }
 }
@@ -85,9 +98,14 @@ void SnuMat::malloc_all_b() {
     sum += block_size[i];
   local_b_rows = sum;
 
-  _b = (double *)malloc(sizeof(double) * sum);
+  // _b = (double *)malloc(sizeof(double) * sum);
+  // gpuErrchk(cudaHostAlloc((void**)&_b, sum * sizeof(double), cudaHostAllocDefault));
+
   if (offlvl >= 0 && (!(iam & 1))) {
     gpuErrchk(cudaMalloc((void **)&_b_gpu, sum * sizeof(double)));
+    gpuErrchk(cudaHostAlloc((void**)&_b, sum * sizeof(double), cudaHostAllocDefault));
+  } else {
+    _b = (double *)malloc(sizeof(double) * sum);
   }
 
   sum = 0;
