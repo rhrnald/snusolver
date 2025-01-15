@@ -737,6 +737,7 @@ void SnuMat::core_numfact_v1() {
   // if (!iam) printf(" -- flop: %lld %lld %lld %lld\n", flop1, idx1, flop2,
   // idx2);
 }
+
 void SnuMat::core_numfact_v2() {
   for (int r = 0; r < leaf_size; r++) {
     double tmp = LU_data[LU_diag[r]];
@@ -767,10 +768,10 @@ void SnuMat::core_numfact_v2() {
       for (int nxt_itr = nxt_ptr + 1; nxt_itr < L; nxt_itr++) {
         int nxt_c = LU_colidx[nxt_itr];
         LU_data[nxt_itr] -= dd * LU_buf[nxt_c];
-#ifdef MEASURE_FLOPS
-        sparse_flop_getrf+=2;
-#endif
       }
+#ifdef MEASURE_FLOPS
+        sparse_flop_getrf+=L-(nxt_ptr + 1);
+#endif
     }
 
     for (int cur_ptr = LU_diag[r] + 1; cur_ptr < LU_rowptr[r + 1]; cur_ptr++) {
@@ -779,6 +780,7 @@ void SnuMat::core_numfact_v2() {
     }
   }
 }
+
 void SnuMat::core_numfact_v3() {
   for (int r = 0; r < leaf_size; r++) {
     double tmp = LU_data[LU_diag[r]];
@@ -962,10 +964,10 @@ void SnuMat::core_GEMM() {
         int c = LU_colidx[ptr2];
         double val2 = LU_data[ptr2];
         MM_buf[c * dense_row + bias] -= val * val2;
-#ifdef MEASURE_FLOPS
-        sparse_flop_gemm+=2;
-#endif
       }
+#ifdef MEASURE_FLOPS
+        sparse_flop_gemm+=LU_rowptr[r2 + 1]-LU_rowptr[r2];
+#endif
     }
   }
 }
@@ -1016,6 +1018,33 @@ void SnuMat::core_run() {
   }
 
   TIMER_PUSH();
+  core_numfact_v1();
+  getrf_time=TIMER_POP();
+
+  TIMER_PUSH();
+  core_trsm();
+  trsm_time=TIMER_POP();
+
+  core_update_b();
+
+  TIMER_PUSH();
+  core_GEMM();
+  gemm_time=TIMER_POP();
+
+
+  core_reduction();
+  core_update();
+
+  MPI_Barrier(MPI_COMM_WORLD);
+}
+void SnuMat::core_run2() {
+  for (int i = 0; i < LU_nnz; i++)
+    LU_data[i] = 0;
+  for (int i = 0; i < core_nnz; i++) {
+    LU_data[core_map[i]] = loc_val[i];
+  }
+
+  TIMER_PUSH();
   core_numfact_v2();
   getrf_time=TIMER_POP();
 
@@ -1035,7 +1064,6 @@ void SnuMat::core_run() {
 
   MPI_Barrier(MPI_COMM_WORLD);
 }
-
 void log_sparse_flop() {
   int iam, np;
   MPI_Comm_size(MPI_COMM_WORLD, &np);

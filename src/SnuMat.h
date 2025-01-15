@@ -125,6 +125,7 @@ public:
   void core_update();
 
   void core_run();
+  void core_run2();
   void core_preprocess();
 
 

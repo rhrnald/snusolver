@@ -211,12 +211,24 @@ void SnuMat::b_tocpu() {
 }
 void SnuMat::solve(double *x) {
   MPI_Barrier(MPI_COMM_WORLD);
-  if(!iam) TIMER_START("Sparse start");
+  if(!iam) TIMER_START("CSR format  1 start");
   core_run();
   MPI_Barrier(MPI_COMM_WORLD);
-  if(!iam) TIMER_END("Sparse end");
+  if(!iam) TIMER_END("CSR format  1 end");
+  if(!iam) TIMER_START("CSR format  2 start");
+  core_run();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("CSR format  2 end");
+  if(!iam) TIMER_START("DUAL format 1 start");
+  core_run2();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("DUAL format 1 end");
+  if(!iam) TIMER_START("DUAL format 2 start");
+  core_run2();
+  MPI_Barrier(MPI_COMM_WORLD);
+  if(!iam) TIMER_END("DUAL format 2 end");
 
-  if(!iam) TIMER_START("Dense start");
+  if(!iam) TIMER_START("Dense format start");
   for (int l = max_level - 1; l > max(offlvl, -1); l--) {
     for (auto &i : my_block_level[l]) {
       snusolver_LU(LU[{i, i}]);
