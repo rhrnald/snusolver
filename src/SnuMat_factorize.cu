@@ -140,6 +140,7 @@ void SnuMat::scatter_b(int block_num) { // Todo change to MPI_REDUCE & non block
     }
   }
 }
+
 void SnuMat::scatter_b_gpu(int block_num) { // Todo change to MPI_REDUCE & non blocking
   if (block_num & 1) {
     int dst = who[block_num - 1];
